@@ -61,6 +61,15 @@ Today, run the bundled example with `thoryn examples setup simple-signin` → `r
 |----|---------|
 | [`simple-signin`](recipes/simple-signin/) | Provision a workspace + app, then register & sign a user in to a protected page. |
 
+## Conformance
+
+Every recipe is exercised end-to-end against staging by `.github/workflows/conformance.yml`
+(nightly + on demand): it builds the `thoryn` CLI, signs in as a client-credentials service
+account, and runs each recipe **apply → verify → teardown**. A recipe that has drifted from the
+product fails here — a red recipe blocks a release. Provision the workflow's secrets
+(`THORYN_CI_CLIENT_ID`, `THORYN_CI_CLIENT_SECRET`, `OATHY_CHECKOUT_TOKEN`) once; see the workflow
+header.
+
 ## Licence
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

@@ -1,0 +1,68 @@
+name: release
+
+# On a version tag, build the signed recipe-catalog bundle and attach it to the GitHub release.
+# The thoryn CLI (`thoryn examples update`) downloads catalog.zip + catalog.zip.sig and verifies the
+# Ed25519 signature against its pinned public key before using anything (SSO-2874).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release + upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate recipes against the schema
+        run: |
+          npm i -g ajv-cli@5 ajv-formats@3
+          set -euo pipefail
+          for r in recipes/*/recipe.yaml; do
+            python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$r')), open('/tmp/recipe.json','w'))"
+            ajv validate --spec=draft2020 -c ajv-formats -s schema/recipe.schema.json -d /tmp/recipe.json
+          done
+
+      - name: Build the catalog bundle (recipe.json generated from the authored YAML)
+        run: |
+          set -euo pipefail
+          rm -rf dist && mkdir -p dist
+          cp -r schema dist/schema
+          for d in recipes/*/; do
+            id="$(basename "$d")"
+            mkdir -p "dist/recipes/$id"
+            # Ship both the authored YAML and the generated JSON — the CLI reads recipe.json (no runtime YAML parser).
+            cp "$d/recipe.yaml" "dist/recipes/$id/recipe.yaml"
+            python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$d/recipe.yaml')), open('dist/recipes/$id/recipe.json','w'), indent=2)"
+            [ -f "$d/README.md" ] && cp "$d/README.md" "dist/recipes/$id/README.md" || true
+            [ -d "$d/apps" ] && cp -r "$d/apps" "dist/recipes/$id/apps" || true
+          done
+          # Deterministic zip (sorted entries, fixed mtime) so the same content signs to the same bytes.
+          ( cd dist && find . -type f | sort | zip -X -q "$GITHUB_WORKSPACE/catalog.zip" -@ )
+
+      - name: Sign the bundle (Ed25519)
+        env:
+          SIGNING_KEY: ${{ secrets.THORYN_EXAMPLES_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_KEY:-}" ]; then
+            echo "::error::THORYN_EXAMPLES_SIGNING_KEY secret is not set — cannot sign the catalog." >&2
+            exit 1
+          fi
+          printf '%s\n' "$SIGNING_KEY" > /tmp/signing_key.pem
+          openssl pkeyutl -sign -inkey /tmp/signing_key.pem -rawin -in catalog.zip -out /tmp/catalog.sig
+          base64 -w0 /tmp/catalog.sig > catalog.zip.sig 2>/dev/null || base64 /tmp/catalog.sig | tr -d '\n' > catalog.zip.sig
+          rm -f /tmp/signing_key.pem /tmp/catalog.sig
+
+      - name: Create the release and attach the signed bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" catalog.zip catalog.zip.sig \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Signed recipe catalog for the thoryn CLI (verify with the CLI's pinned Ed25519 key)."

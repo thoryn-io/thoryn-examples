@@ -1,0 +1,81 @@
+name: conformance
+
+# SSO-2877 — run every recipe apply → verify → teardown against STAGING with the real thoryn CLI, so a
+# recipe that has drifted from the product (or a product change that breaks a recipe) fails here. This
+# is the self-maintaining half of the catalog: a red recipe blocks a release.
+#
+# Runs nightly and on demand. Authenticated as a client-credentials SERVICE ACCOUNT (no browser).
+#
+# Required repo secrets (provision once):
+#   THORYN_CI_CLIENT_ID     — an OAuth client permitted the client-credentials grant + the tenant:*
+#                             scopes the recipes touch (applications.write, federation.write, …).
+#   THORYN_CI_CLIENT_SECRET — that client's secret.
+#   OATHY_CHECKOUT_TOKEN    — a token (PAT / GitHub App) that can read thoryn-io/oauthy, to build the
+#                             CLI from source (no published CLI binary yet).
+# Staging hosts are the known constants below.
+
+on:
+  schedule:
+    - cron: "23 4 * * *" # nightly
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Only run this recipe id (default: all)"
+        required: false
+
+env:
+  THORYN_HUB: https://hub.stg.thoryn.org
+  THORYN_GATEWAY: https://api.stg.thoryn.org
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the CLI source (thoryn-io/oauthy)
+        uses: actions/checkout@v4
+        with:
+          repository: thoryn-io/oauthy
+          token: ${{ secrets.OATHY_CHECKOUT_TOKEN }}
+          path: oauthy
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build the thoryn CLI
+        working-directory: oauthy
+        run: ./mvnw -q -pl tools/cli -am package -DskipTests
+
+      - name: Sign in (client-credentials service account)
+        env:
+          THORYN_CLIENT_SECRET: ${{ secrets.THORYN_CI_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          [ -n "${{ secrets.THORYN_CI_CLIENT_ID }}" ] || { echo "::error::THORYN_CI_CLIENT_ID is not set"; exit 1; }
+          java -jar oauthy/tools/cli/target/thoryn.jar login \
+            --client-credentials --client-id "${{ secrets.THORYN_CI_CLIENT_ID }}" \
+            --issuer "$THORYN_HUB"
+
+      - name: Recipe conformance — apply → verify → teardown
+        run: |
+          set -uo pipefail
+          CLI="java -jar oauthy/tools/cli/target/thoryn.jar"
+          only='${{ github.event.inputs.recipe }}'
+          fail=0
+          for d in recipes/*/; do
+            id="$(basename "$d")"
+            if [ -n "$only" ] && [ "$only" != "$id" ]; then continue; fi
+            echo "::group::$id"
+            ok=1
+            $CLI examples apply "$id" --yes --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || ok=0
+            if [ "$ok" = 1 ]; then $CLI examples verify "$id" --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || ok=0; fi
+            # Always attempt teardown so a failed run doesn't leave residue.
+            $CLI examples teardown "$id" --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || true
+            if [ "$ok" = 0 ]; then echo "::error::recipe '$id' failed conformance"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail

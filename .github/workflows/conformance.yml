@@ -10,8 +10,9 @@ name: conformance
 #   THORYN_CI_CLIENT_ID     — an OAuth client permitted the client-credentials grant + the tenant:*
 #                             scopes the recipes touch (applications.write, federation.write, …).
 #   THORYN_CI_CLIENT_SECRET — that client's secret.
-#   OATHY_CHECKOUT_TOKEN    — a token (PAT / GitHub App) that can read thoryn-io/oauthy, to build the
-#                             CLI from source (no published CLI binary yet).
+#   OATHY_CLI_TOKEN         — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
+#                             download the prebuilt thoryn CLI jar (published by oauthy's cli-release
+#                             workflow on a `cli-v*` tag).
 # Staging hosts are the known constants below.
 
 on:
@@ -33,22 +34,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check out the CLI source (thoryn-io/oauthy)
-        uses: actions/checkout@v4
-        with:
-          repository: thoryn-io/oauthy
-          token: ${{ secrets.OATHY_CHECKOUT_TOKEN }}
-          path: oauthy
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      - name: Build the thoryn CLI
-        working-directory: oauthy
-        run: ./mvnw -q -pl tools/cli -am package -DskipTests
+      - name: Download the prebuilt thoryn CLI (latest cli-v* release)
+        env:
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/oauthy --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/oauthy — run its cli-release workflow first"; exit 1; }
+          echo "Using CLI release $tag"
+          gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
 
       - name: Sign in (client-credentials service account)
         env:
@@ -56,14 +55,14 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "${{ secrets.THORYN_CI_CLIENT_ID }}" ] || { echo "::error::THORYN_CI_CLIENT_ID is not set"; exit 1; }
-          java -jar oauthy/tools/cli/target/thoryn.jar login \
+          java -jar thoryn.jar login \
             --client-credentials --client-id "${{ secrets.THORYN_CI_CLIENT_ID }}" \
             --issuer "$THORYN_HUB"
 
       - name: Recipe conformance — apply → verify → teardown
         run: |
           set -uo pipefail
-          CLI="java -jar oauthy/tools/cli/target/thoryn.jar"
+          CLI="java -jar thoryn.jar"
           only='${{ github.event.inputs.recipe }}'
           fail=0
           for d in recipes/*/; do

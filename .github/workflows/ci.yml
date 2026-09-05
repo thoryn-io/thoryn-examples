@@ -1,0 +1,35 @@
+name: recipes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate-schema:
+    name: Validate recipes against the schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install ajv
+        run: npm i -g ajv-cli@5 ajv-formats@3
+      - name: Validate every recipe against schema/recipe.schema.json
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fail=0
+          for r in recipes/*/recipe.yaml; do
+            python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$r')), open('/tmp/recipe.json','w'))"
+            echo "· validating $r"
+            if ! ajv validate --spec=draft2020 -c ajv-formats -s schema/recipe.schema.json -d /tmp/recipe.json; then
+              echo "  ✗ $r does not conform to the schema"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  # TODO (SSO-2877, Phase 5): run each recipe apply → verify → teardown against staging, so a recipe
+  # that drifts from the real product fails here and blocks a catalog release. Tracked in the epic.

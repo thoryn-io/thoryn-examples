@@ -25,7 +25,21 @@ thoryn examples teardown simple-signin  # remove the client
 ```
 
 The sign-in happens on the real hosted screens at your workspace's identity host; the local app is an
-ephemeral loopback relying party (see [`apps/loopback-rp/`](apps/loopback-rp/)).
+ephemeral loopback relying party.
+
+### Run the relying party yourself (read the code)
+
+The `thoryn examples run` command launches a built-in relying party so you can watch the flow with
+zero setup. To see the same flow as **code you own**, run the readable Node.js app in
+[`apps/loopback-rp/`](apps/loopback-rp/) with the issuer and client id the recipe printed:
+
+```bash
+cd apps/loopback-rp
+THORYN_ISSUER=https://<your-workspace>.hub.<domain> THORYN_CLIENT_ID=app-XXXXXXXX npm start
+# open http://127.0.0.1:8471 and click "Sign in"
+```
+
+It is one dependency-free file — a good starting point for wiring Thoryn SSO into your own app.
 
 ## Notes
 

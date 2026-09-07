@@ -59,19 +59,25 @@ if (!ISSUER || !CLIENT_ID) {
   process.exit(1);
 }
 
-const REDIRECT_URI = `http://127.0.0.1:${PORT}/callback`;
+// The loopback origin this app listens on (including the dynamic port). It is
+// both the base for the OAuth redirect URI and the `post_logout_redirect_uri`
+// we hand the hub for RP-Initiated Logout.
+const SELF_ORIGIN = `http://127.0.0.1:${PORT}`;
+const REDIRECT_URI = `${SELF_ORIGIN}/callback`;
 
 // ---- tiny in-memory state (single-process demo) ----------------------------
 //
 // `pending` maps an in-flight `state` value to its PKCE code_verifier, so the
 // /callback can finish an authorization it started in /login. `sessions` maps an
-// opaque session-id cookie to the signed-in user's ID-token claims. Both are
-// plain Maps because this demo is a single local process; a real app would use
-// a shared session store.
+// opaque session-id cookie to the signed-in user's ID-token claims AND the raw
+// id_token itself — we keep the token so /logout can present it to the hub as an
+// `id_token_hint` for RP-Initiated Logout. Both are plain Maps because this demo
+// is a single local process; a real app would use a shared session store.
 
 /** @type {Map<string, string>} */
 const pending = new Map();
-/** @type {Map<string, Record<string, unknown>>} */
+/** @typedef {{ claims: Record<string, unknown>, idToken: string }} Session */
+/** @type {Map<string, Session>} */
 const sessions = new Map();
 
 // ---- PKCE helpers (RFC 7636) -----------------------------------------------
@@ -158,8 +164,9 @@ async function callback(res, url) {
   }
 
   // Start a session: a random id in an HttpOnly cookie, claims held server-side.
+  // We also stash the raw id_token so /logout can end the hub session too.
   const sid = randomToken();
-  sessions.set(sid, claims);
+  sessions.set(sid, { claims, idToken });
   res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/`);
   redirect(res, '/protected');
 }
@@ -190,12 +197,76 @@ function protectedPage(res, req) {
   );
 }
 
-/** GET /logout — drop the session and return home. */
-function logout(res, req) {
+/**
+ * GET /logout — RP-Initiated Logout (OpenID Connect RP-Initiated Logout 1.0).
+ *
+ * A local-only logout — just dropping our own cookie — would leave the user
+ * still signed in at the hub, so the very next "Sign in" would silently
+ * re-authenticate them with no prompt. To actually sign out we must end the
+ * session at the hub too. We read the session's stored id_token BEFORE clearing
+ * it, drop our local session + cookie, then 302 the browser to the hub's
+ * end_session_endpoint with an `id_token_hint` (which session to end) and a
+ * `post_logout_redirect_uri` back to our loopback origin. The hub terminates its
+ * session and redirects the browser home — fully signed out.
+ */
+async function logout(res, req) {
   const sid = cookie(req, 'sid');
+  const session = sid ? sessions.get(sid) : undefined;
+  const idToken = session ? session.idToken : null;
+
+  // Clear the local session + cookie regardless of what happens next.
   if (sid) sessions.delete(sid);
   res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
-  redirect(res, '/');
+
+  // Without an id_token we can't tell the hub which session to end, so fall back
+  // to the old local-only behaviour — logout must never error.
+  if (!idToken) return redirect(res, '/');
+
+  const endSession = await discoverEndSessionEndpoint();
+  redirect(res, buildEndSessionUrl(endSession, idToken, `${SELF_ORIGIN}/`, randomToken()));
+}
+
+/**
+ * Build the hub end-session URL for RP-Initiated Logout: the discovered
+ * `end_session_endpoint` plus the `id_token_hint`, `post_logout_redirect_uri`
+ * and an unguessable `state`. A pure function so it is easy to read and test.
+ */
+function buildEndSessionUrl(endSessionEndpoint, idToken, postLogoutRedirectUri, state) {
+  return (
+    `${endSessionEndpoint}` +
+    `?id_token_hint=${encodeURIComponent(idToken)}` +
+    `&post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}` +
+    `&state=${encodeURIComponent(state)}`
+  );
+}
+
+// ---- OIDC discovery (RP-Initiated Logout endpoint) -------------------------
+
+/** @type {string | null} */
+let endSessionEndpointCache = null;
+
+/**
+ * Discover the hub's RP-Initiated Logout endpoint, once. We read
+ * `end_session_endpoint` from {issuer}/.well-known/openid-configuration and
+ * cache it for the process lifetime. If discovery is unreachable or omits the
+ * field, we fall back to the hub's conventional {issuer}/connect/logout path so
+ * sign-out still works.
+ * @returns {Promise<string>}
+ */
+async function discoverEndSessionEndpoint() {
+  if (endSessionEndpointCache) return endSessionEndpointCache;
+  const fallback = `${ISSUER}/connect/logout`;
+  try {
+    const resp = await fetch(`${ISSUER}/.well-known/openid-configuration`, {
+      headers: { Accept: 'application/json' },
+    });
+    const doc = resp.ok ? await resp.json().catch(() => null) : null;
+    const found = doc && typeof doc.end_session_endpoint === 'string' ? doc.end_session_endpoint : null;
+    endSessionEndpointCache = found || fallback;
+  } catch {
+    endSessionEndpointCache = fallback;
+  }
+  return endSessionEndpointCache;
 }
 
 // ---- back-channel token exchange -------------------------------------------
@@ -252,7 +323,7 @@ const server = http.createServer(async (req, res) => {
       case '/login': return login(res);
       case '/callback': return await callback(res, url);
       case '/protected': return protectedPage(res, req);
-      case '/logout': return logout(res, req);
+      case '/logout': return await logout(res, req);
       default: return send(res, 404, 'Not found', 'text/plain');
     }
   } catch (err) {
@@ -260,18 +331,28 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Example relying party listening on http://127.0.0.1:${PORT}`);
-  console.log(`  issuer:    ${ISSUER}`);
-  console.log(`  client_id: ${CLIENT_ID}`);
-  console.log(`  redirect:  ${REDIRECT_URI}`);
-  console.log('\nOpen http://127.0.0.1:' + PORT + ' in your browser and click "Sign in".');
-});
+// Only start listening when run directly (`node server.js`). When this file is
+// `require`d — e.g. by the unit test for the logout URL builder — we skip the
+// listen so importing it has no side effects beyond defining the functions.
+if (require.main === module) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`Example relying party listening on http://127.0.0.1:${PORT}`);
+    console.log(`  issuer:    ${ISSUER}`);
+    console.log(`  client_id: ${CLIENT_ID}`);
+    console.log(`  redirect:  ${REDIRECT_URI}`);
+    console.log('\nOpen http://127.0.0.1:' + PORT + ' in your browser and click "Sign in".');
+  });
+}
+
+// Exported for unit tests (see logout.test.js); the running server does not use
+// these exports.
+module.exports = { buildEndSessionUrl };
 
 /** @returns {Record<string, unknown> | null} the current session's claims, if any. */
 function currentSession(req) {
   const sid = cookie(req, 'sid');
-  return sid ? sessions.get(sid) || null : null;
+  const session = sid ? sessions.get(sid) : undefined;
+  return session ? session.claims : null;
 }
 
 /** Read one cookie value from the request's Cookie header. */

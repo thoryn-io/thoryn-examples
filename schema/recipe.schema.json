@@ -107,7 +107,7 @@
         "additionalProperties": false,
         "required": ["action"],
         "properties": {
-          "action": { "enum": ["applications.delete", "federation.delete"] },
+          "action": { "enum": ["applications.delete", "federation.delete", "hub.deleteWorkspace"] },
           "id": { "type": "string" },
           "with": { "type": "object" }
         }

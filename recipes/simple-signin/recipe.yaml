@@ -49,6 +49,11 @@ steps:
       grantTypes: ["authorization_code"]
       scopes: ["openid", "profile", "email"]
       redirectUris: ["http://127.0.0.1/callback"]
+      # RP-Initiated Logout (SSO-2897): the loopback app sends the browser to the
+      # hub end_session_endpoint with post_logout_redirect_uri back to its own
+      # origin, so the hub must allow returning to the loopback. Port-agnostic per
+      # RFC 8252, mirroring the redirectUris shape above.
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
 
 verify:
   - assert: applications.get

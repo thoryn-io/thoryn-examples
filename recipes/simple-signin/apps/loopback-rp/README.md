@@ -16,12 +16,32 @@ GET /login      mint a PKCE verifier + state, 302 to {issuer}/oauth2/authorize
 GET /callback   hub returns ?code&state → exchange the code at {issuer}/oauth2/token
                 (sending the PKCE verifier), start a session, 302 to /protected
 GET /protected  renders only for a signed-in session; shows the ID-token claims
-GET /logout     drop the session, go home
+GET /logout     RP-Initiated Logout: drop the local session, then 302 to the hub's
+                end_session_endpoint (id_token_hint + post_logout_redirect_uri) so
+                the Thoryn session ends too; the hub redirects back to /
 ```
 
 Only the PKCE **challenge** travels over the browser (front channel); the **verifier** stays
 in the app and is revealed only on the back-channel token call — that is what lets a public
 client (no secret) authenticate safely.
+
+## Signing out
+
+`/logout` performs **[OpenID Connect RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)**,
+not just a local cookie drop. Clearing only this app's session would leave you signed in at the
+hub, so the next **Sign in** would re-authenticate silently with no prompt. Instead the app
+keeps the `id_token` from the token exchange, and on `/logout` it clears the local session and
+then redirects the browser to the hub's `end_session_endpoint` (discovered from
+`{issuer}/.well-known/openid-configuration`) with:
+
+- `id_token_hint` — the stored ID token, telling the hub which session to end;
+- `post_logout_redirect_uri` — `http://127.0.0.1:{PORT}/`, where the hub returns you afterwards;
+- `state` — an unguessable value.
+
+The hub ends its session and redirects back to the loopback origin, fully signed out. For that
+redirect-back to be allowed, the recipe registers `postLogoutRedirectUris: ["http://127.0.0.1/"]`
+on the client (port-agnostic per RFC 8252, mirroring the redirect URI). If no `id_token` is on
+the session, the app falls back to a local-only logout so signing out never errors.
 
 ## Run it
 

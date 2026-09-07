@@ -38,6 +38,10 @@ permissions:
 env:
   THORYN_HUB: https://hub.stg.thoryn.org
   THORYN_GATEWAY: https://api.stg.thoryn.org
+  # The runner is headless with no OS keyring, so the CLI's default token store is unavailable and
+  # (per ADR 2026-04-25 §4) it refuses to silently write plaintext. This is the sanctioned CI opt-in:
+  # the token is short-lived (WIF-minted) and the runner is ephemeral and destroyed after the job.
+  THORYN_CI_PLAINTEXT_TOKENS: "1"
 
 jobs:
   conformance:

@@ -75,7 +75,8 @@
               "applications.create",
               "applications.delete",
               "federation.create",
-              "federation.delete"
+              "federation.delete",
+              "identity.registerUser"
             ]
           },
           "with": { "type": "object" },

@@ -1,19 +1,26 @@
 name: conformance
 
-# SSO-2877 — run every recipe apply → verify → teardown against STAGING with the real thoryn CLI, so a
-# recipe that has drifted from the product (or a product change that breaks a recipe) fails here. This
-# is the self-maintaining half of the catalog: a red recipe blocks a release.
+# SSO-2877 / SSO-2879 — run every recipe apply → verify → teardown against STAGING with the real
+# thoryn CLI, so a recipe that has drifted from the product (or a product change that breaks a recipe)
+# fails here. This is the self-maintaining half of the catalog: a red recipe blocks a release.
 #
-# Runs nightly and on demand. Authenticated as a client-credentials SERVICE ACCOUNT (no browser).
+# Runs nightly and on demand. Authenticated SECRET-LESS via GitHub Actions OIDC → the hub's Workload
+# Identity Federation (RFC 8693 token-exchange): the runner's short-lived OIDC token is exchanged for a
+# hub access token, and the exchange client authenticates with an asymmetric key (private_key_jwt). No
+# shared client secret is stored. See ADR oathy adrs/2026-09-06-conformance-ci-github-oidc-wif.md.
 #
 # Required repo secrets (provision once):
-#   THORYN_CI_CLIENT_ID     — an OAuth client permitted the client-credentials grant + the tenant:*
-#                             scopes the recipes touch (applications.write, federation.write, …).
-#   THORYN_CI_CLIENT_SECRET — that client's secret.
-#   OATHY_CLI_TOKEN         — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
-#                             download the prebuilt thoryn CLI jar (published by oauthy's cli-release
-#                             workflow on a `cli-v*` tag).
-# Staging hosts are the known constants below.
+#   THORYN_CI_WIF_SIGNING_KEY — the EC P-256 (ES256) PRIVATE key for the exchange client
+#                               `conformance-ci-github-wif`. The PUBLIC half is registered on the hub
+#                               inline in migration V143 (kid=ci-conformance-wif-v1) — nothing to host.
+#   OATHY_CLI_TOKEN           — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
+#                               download the prebuilt thoryn CLI jar (published by oauthy's cli-release
+#                               workflow on a `cli-v*` tag).
+#
+# The hub trust (tenant `ci-conformance`, client `conformance-ci-github-wif`, issuer
+# token.actions.githubusercontent.com, audience = the hub issuer below, subject pinned to
+# ^repo:thoryn-io/thoryn-examples:.*$) is seeded in hub V143 — the CLI defaults already match it, so
+# the login line needs no client-id / tenant / kid flags. Staging hosts are the known constants below.
 
 on:
   schedule:
@@ -23,6 +30,10 @@ on:
       recipe:
         description: "Only run this recipe id (default: all)"
         required: false
+
+permissions:
+  contents: read # checkout
+  id-token: write # mint the GitHub Actions OIDC token the WIF login exchanges
 
 env:
   THORYN_HUB: https://hub.stg.thoryn.org
@@ -49,15 +60,17 @@ jobs:
           echo "Using CLI release $tag"
           gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
 
-      - name: Sign in (client-credentials service account)
+      - name: Sign in (GitHub Actions OIDC → hub Workload Identity Federation)
         env:
-          THORYN_CLIENT_SECRET: ${{ secrets.THORYN_CI_CLIENT_SECRET }}
+          # The CLI reads the runner's OIDC token from ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN (present
+          # because id-token: write above) and signs the private_key_jwt client assertion with this key.
+          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          [ -n "${{ secrets.THORYN_CI_CLIENT_ID }}" ] || { echo "::error::THORYN_CI_CLIENT_ID is not set"; exit 1; }
-          java -jar thoryn.jar login \
-            --client-credentials --client-id "${{ secrets.THORYN_CI_CLIENT_ID }}" \
-            --issuer "$THORYN_HUB"
+          [ -n "${THORYN_CI_WIF_SIGNING_KEY:-}" ] || { echo "::error::THORYN_CI_WIF_SIGNING_KEY is not set"; exit 1; }
+          # --workload-identity defaults tenant=ci-conformance, client=conformance-ci-github-wif,
+          # kid=ci-conformance-wif-v1, and requests the OIDC audience = --issuer (the hub's allowed_audience).
+          java -jar thoryn.jar login --workload-identity --issuer "$THORYN_HUB"
 
       - name: Recipe conformance — apply → verify → teardown
         run: |

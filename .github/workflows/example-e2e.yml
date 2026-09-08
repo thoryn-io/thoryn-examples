@@ -132,27 +132,8 @@ jobs:
           java -jar thoryn.jar login --workload-identity --issuer "$THORYN_HUB"
 
       # ── Provision the example via the real product APIs ─────────────────────
-      - name: Apply the simple-signin example (fresh workspace + app + user)
-        id: apply
-        run: |
-          set -euo pipefail
-          java -jar thoryn.jar examples apply simple-signin --yes \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" | tee /tmp/apply.out
-          # The receipt is also queryable via `thoryn examples receipt simple-signin`;
-          # parsing the apply output keeps this a single call. Adjust the patterns if
-          # the released CLI's receipt shape differs (LIVE-CONFIRM).
-          issuer="$(grep -oE 'https://[a-z0-9-]+\.hub\.stg\.thoryn\.org' /tmp/apply.out | head -1)"
-          client="$(grep -oE 'app-[A-Za-z0-9]+' /tmp/apply.out | head -1)"
-          slug="$(printf '%s' "$issuer" | sed -E 's#^https://([a-z0-9-]+)\.hub\.stg\.thoryn\.org$#\1#')"
-          [ -n "$issuer" ] && [ -n "$client" ] && [ -n "$slug" ] || { echo "::error::could not parse issuer/client/slug from apply output"; exit 1; }
-          {
-            echo "issuer=$issuer"
-            echo "client_id=$client"
-            echo "slug=$slug"
-          } >> "$GITHUB_OUTPUT"
-          echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client)"
-
       # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──
+      # (BEFORE apply, so its address can be passed to the recipe via --set.)
       - name: Start in-job Mailpit + open a public TCP tunnel to its SMTP port
         id: sink
         env:
@@ -230,40 +211,45 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Public SMTP sink: ${host}:${port} → in-job Mailpit :1025 (API on localhost:8025)"
 
-      # ── Point the workspace BYO-SMTP at the tunnelled Mailpit (SSO-2917) ─────
-      - name: Configure the workspace email provider → the tunnelled Mailpit SMTP
+      # ── Provision the workspace + app + user, AND configure the new workspace's ──
+      # ── BYO-SMTP → the tunnelled sink IN-FLOW via `apply --set` (SSO-2927). ──
+      # The recipe's optional configure-email-provider step runs on the workspace's live
+      # PROVISIONING TOKEN — the only thing that can reach a just-provisioned workspace in
+      # CI (the standalone `workspace email-provider` command needs a per-tenant re-auth
+      # the WIF identity can't do: `login --issuer https://{slug}.hub.stg.thoryn.org` → 401).
+      - name: Apply the simple-signin example (+ BYO-SMTP → the tunnelled sink)
+        id: apply
         env:
           SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
           SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
         run: |
           set -euo pipefail
           [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
-          # The CLI has NO `--smtp-password <value>` flag (secret-in-argv is banned);
-          # feed the per-run password through a 0600 tmp file so it never hits the
-          # process table.
-          pwfile="$(mktemp)"; chmod 600 "$pwfile"
-          trap 'rm -f "$pwfile"' EXIT
-          printf '%s' "$SMTP_PW" > "$pwfile"
-          # transport-security = none + --allow-insecure: the ngrok/bore TCP tunnel
-          # cannot present a valid STARTTLS cert for its ephemeral hostname, so the
-          # BYO-SMTP leg is plaintext. Acceptable for a throwaway TEST sink only.
-          # LIVE-CONFIRM: the exact flag names + workspace selector (here: --workspace
-          # <slug>) must be confirmed against the released CLI.
-          java -jar thoryn.jar workspace email-provider set \
-            --workspace "${{ steps.apply.outputs.slug }}" \
-            --smtp-host "$SINK_SMTP_HOST" \
-            --smtp-port "$SINK_SMTP_PORT" \
-            --smtp-username ci \
-            --smtp-password-file "$pwfile" \
-            --transport-security none \
-            --allow-insecure \
-            --from-address "$SMTP_FROM_ADDRESS" \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY"
-          # Optional pre-flight (SSO-2923): confirm the SMTP target before relying on it.
-          java -jar thoryn.jar workspace email-provider verify \
-            --workspace "${{ steps.apply.outputs.slug }}" \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || \
-            echo "::warning::email-provider verify failed or is unsupported by this CLI — the journey's Mailpit poll is the real check"
+          # transport=none + allow-insecure: the TCP tunnel can't present a valid STARTTLS
+          # cert for its ephemeral hostname — plaintext to a throwaway TEST sink only. The
+          # per-run SMTP password (ephemeral, masked, dies with the runner) is passed via
+          # --set; MP_SMTP_AUTH=ci:$SMTP_PW means only this run can deliver to the sink.
+          java -jar thoryn.jar examples apply simple-signin --yes \
+            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" \
+            --set smtpHost="$SINK_SMTP_HOST" \
+            --set smtpPort="$SINK_SMTP_PORT" \
+            --set smtpUsername=ci \
+            --set smtpPassword="$SMTP_PW" \
+            --set smtpTransport=none \
+            --set smtpAllowInsecure=true \
+            --set smtpFromAddress="$SMTP_FROM_ADDRESS" | tee /tmp/apply.out
+          # Parse slug + clientId from the result lines (workspace: slug=… / client: clientId=…)
+          # and CONSTRUCT the tenant issuer from the slug (the CLI prints no issuer URL).
+          slug="$(grep -oE 'slug=[a-z0-9][a-z0-9-]*' /tmp/apply.out | head -1 | cut -d= -f2)"
+          client="$(grep -oE 'clientId=app-[A-Za-z0-9-]+' /tmp/apply.out | head -1 | cut -d= -f2)"
+          issuer="https://${slug}.hub.stg.thoryn.org"
+          [ -n "$slug" ] && [ -n "$client" ] || { echo "::error::could not parse slug/clientId from apply output"; sed -n '1,80p' /tmp/apply.out; exit 1; }
+          {
+            echo "issuer=$issuer"
+            echo "client_id=$client"
+            echo "slug=$slug"
+          } >> "$GITHUB_OUTPUT"
+          echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client) with BYO-SMTP → sink"
 
       # ── Start the loopback RP (the app the end user signs in to) ─────────────
       - name: Start the loopback relying-party

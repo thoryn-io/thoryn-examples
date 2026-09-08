@@ -144,7 +144,10 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         page.getByText(/you are signed in as/i),
         "the OIDC code flow completes and the RP renders its protected page",
       ).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByText(email, { exact: false })).toBeVisible();
+      // The RP renders the signed-in email in more than one place (a heading <strong>
+      // and the claims table <td>), so scope to the first match to avoid a strict-mode
+      // violation — presence anywhere proves the correct user is signed in.
+      await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
     } finally {
       await context.close();
     }

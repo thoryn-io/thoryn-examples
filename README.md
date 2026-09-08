@@ -70,6 +70,23 @@ product fails here — a red recipe blocks a release. Provision the workflow's s
 (`THORYN_CI_CLIENT_ID`, `THORYN_CI_CLIENT_SECRET`, `OATHY_CLI_TOKEN`) once; see the workflow
 header.
 
+### Browser e2e (`example-e2e.yml`) — _scaffold, not yet activated_
+
+`.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912) goes one step further than
+conformance: it drives `simple-signin` through a **real browser** against staging — a
+genuine self-service sign-up whose **verification email is captured from a managed
+[Mailtrap Email Testing](https://mailtrap.io) inbox** (via the tenant's BYO-SMTP,
+SSO-2917) — then signs in through the recipe's loopback RP to a protected page. The
+harness lives in [`e2e/`](e2e/).
+
+It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the WIF login step
+until a maintainer creates these repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
+`OATHY_CLI_TOKEN`, `MAILTRAP_API_TOKEN`, `MAILTRAP_ACCOUNT_ID`, `MAILTRAP_INBOX_ID`,
+`MAILTRAP_SMTP_HOST`, `MAILTRAP_SMTP_PORT`, `MAILTRAP_SMTP_USERNAME`,
+`MAILTRAP_SMTP_PASSWORD` — and a first live run confirms the tenant self-service-signup
+entry, the BYO-SMTP→Mailtrap delivery, and the RP OIDC round-trip. See
+[`e2e/README.md`](e2e/README.md) for the full secret table and the live-confirm list.
+
 ## Licence
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

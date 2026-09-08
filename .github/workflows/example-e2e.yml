@@ -1,0 +1,219 @@
+name: example-e2e
+
+# SSO-2909 (harness) + SSO-2912 (workflow), epic SSO-2906 — drive the `simple-signin`
+# example end-to-end against the STAGING SaaS in a real browser, capturing the REAL
+# verification email from a managed Mailtrap Email Testing inbox so a genuine
+# self-service sign-up can proceed (Path B). NO k3d, NO self-deployed stack: the CLI
+# talks to staging exactly as a customer would.
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │  SCAFFOLD — NOT YET ACTIVATED. Until the maintainer creates the secrets below │
+# │  (see e2e/README.md) this workflow is workflow_dispatch-only and FAILS at the │
+# │  WIF login step. A FIRST live run must also confirm the seams the harness     │
+# │  marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→Mailtrap       │
+# │  delivery, the RP OIDC round-trip). Do NOT treat a green local scaffold as a   │
+# │  green pipeline.                                                               │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Auth = WIF (SSO-2910, same as conformance.yml): GitHub Actions OIDC → the hub's
+# Workload Identity Federation (RFC 8693 token-exchange), private_key_jwt client
+# assertion, NO shared client secret. Needs `id-token: write` + THORYN_CI_WIF_SIGNING_KEY.
+#
+# The journey (orchestrated below):
+#   WIF login → `examples apply simple-signin` (fresh workspace + public app + user)
+#   → point the workspace BYO-SMTP at Mailtrap (SSO-2917) → start the recipe's
+#   loopback RP → Playwright Path-B journey (self-service sign-up → capture email
+#   from Mailtrap → verify → sign in via RP → /protected) → `examples teardown`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Recipe id to run (only simple-signin is wired for the browser journey today)"
+        required: false
+        default: simple-signin
+  schedule:
+    - cron: "41 4 * * *" # nightly, offset from conformance.yml (23 4)
+
+permissions:
+  contents: read # checkout
+  id-token: write # mint the GitHub Actions OIDC token the WIF login exchanges
+
+concurrency:
+  group: example-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  THORYN_HUB: https://hub.stg.thoryn.org
+  THORYN_GATEWAY: https://api.stg.thoryn.org
+  # identity host that serves the hosted register/login screens + the verify-email
+  # landing on staging. Overridden here if the tenant serves them on its own subdomain.
+  IDENTITY_BASE_URL: https://identity.stg.thoryn.org
+  # The runner is headless with no OS keyring → the CLI's default token store is
+  # unavailable and it refuses to silently write plaintext. Sanctioned CI opt-in
+  # (same as conformance.yml): the token is short-lived (WIF-minted), runner ephemeral.
+  THORYN_CI_PLAINTEXT_TOKENS: "1"
+  RP_PORT: "8471"
+  # The tenant BYO-SMTP "from" address. Mailtrap Email Testing captures every message
+  # regardless of sender; a reserved .example domain keeps it unmistakably non-routable.
+  SMTP_FROM_ADDRESS: noreply@simple-signin.thoryn.example
+
+jobs:
+  example-e2e:
+    name: example-e2e (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout thoryn-examples
+        uses: actions/checkout@v4
+
+      - name: Set up Java (for the thoryn CLI jar)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node.js (Playwright harness + loopback RP)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── Fetch the prebuilt thoryn CLI (published by oauthy's cli-release) ────
+      - name: Download the prebuilt thoryn CLI (latest cli-v* release)
+        env:
+          # BLOCKED(SSO-2912): secret OATHY_CLI_TOKEN must exist (already used by
+          # conformance.yml) — a token that can read thoryn-io/oauthy releases.
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/oauthy --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/oauthy — run its cli-release workflow first"; exit 1; }
+          echo "Using CLI release $tag"
+          gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
+
+      # ── Authenticate the CLI via GitHub OIDC → hub WIF (SSO-2910) ────────────
+      - name: Sign in (GitHub Actions OIDC → hub Workload Identity Federation)
+        env:
+          # BLOCKED(SSO-2912): secret THORYN_CI_WIF_SIGNING_KEY must be created — the
+          # EC P-256 (ES256) PKCS#8 private key for the conformance-ci-github-wif
+          # exchange client (public half seeded on the hub; subject pinned to
+          # repo:thoryn-io/thoryn-examples:*). Same secret conformance.yml uses.
+          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${THORYN_CI_WIF_SIGNING_KEY:-}" ] || { echo "::error::THORYN_CI_WIF_SIGNING_KEY is not set"; exit 1; }
+          # Proven login form (conformance.yml): --workload-identity defaults
+          # tenant=ci-conformance, client=conformance-ci-github-wif, kid, and requests
+          # the OIDC audience = --issuer (the hub's allowed_audience).
+          java -jar thoryn.jar login --workload-identity --issuer "$THORYN_HUB"
+
+      # ── Provision the example via the real product APIs ─────────────────────
+      - name: Apply the simple-signin example (fresh workspace + app + user)
+        id: apply
+        run: |
+          set -euo pipefail
+          java -jar thoryn.jar examples apply simple-signin --yes \
+            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" | tee /tmp/apply.out
+          # The receipt is also queryable via `thoryn examples receipt simple-signin`;
+          # parsing the apply output keeps this a single call. Adjust the patterns if
+          # the released CLI's receipt shape differs (LIVE-CONFIRM).
+          issuer="$(grep -oE 'https://[a-z0-9-]+\.hub\.stg\.thoryn\.org' /tmp/apply.out | head -1)"
+          client="$(grep -oE 'app-[A-Za-z0-9]+' /tmp/apply.out | head -1)"
+          slug="$(printf '%s' "$issuer" | sed -E 's#^https://([a-z0-9-]+)\.hub\.stg\.thoryn\.org$#\1#')"
+          [ -n "$issuer" ] && [ -n "$client" ] && [ -n "$slug" ] || { echo "::error::could not parse issuer/client/slug from apply output"; exit 1; }
+          {
+            echo "issuer=$issuer"
+            echo "client_id=$client"
+            echo "slug=$slug"
+          } >> "$GITHUB_OUTPUT"
+          echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client)"
+
+      # ── Point the workspace BYO-SMTP at Mailtrap (SSO-2917 / SSO-2918) ───────
+      - name: Configure the workspace email provider → Mailtrap Email Testing
+        env:
+          # BLOCKED(SSO-2912): secrets MAILTRAP_SMTP_HOST / MAILTRAP_SMTP_PORT /
+          # MAILTRAP_SMTP_USERNAME / MAILTRAP_SMTP_PASSWORD must be created (the
+          # Mailtrap sandbox inbox's SMTP settings). Host is PUBLIC → SmtpTargetGuard
+          # allows it with no allow-list entry.
+          MAILTRAP_SMTP_HOST: ${{ secrets.MAILTRAP_SMTP_HOST }}
+          MAILTRAP_SMTP_PORT: ${{ secrets.MAILTRAP_SMTP_PORT }}
+          MAILTRAP_SMTP_USERNAME: ${{ secrets.MAILTRAP_SMTP_USERNAME }}
+          MAILTRAP_SMTP_PASSWORD: ${{ secrets.MAILTRAP_SMTP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in MAILTRAP_SMTP_HOST MAILTRAP_SMTP_PORT MAILTRAP_SMTP_USERNAME MAILTRAP_SMTP_PASSWORD; do
+            [ -n "${!v:-}" ] || { echo "::error::$v is not set"; exit 1; }
+          done
+          # LIVE-CONFIRM: the exact flag names + how the target workspace is selected
+          # (here: --workspace <slug>) must be confirmed against the released CLI.
+          java -jar thoryn.jar workspace email-provider set \
+            --workspace "${{ steps.apply.outputs.slug }}" \
+            --smtp-host "$MAILTRAP_SMTP_HOST" \
+            --smtp-port "$MAILTRAP_SMTP_PORT" \
+            --smtp-username "$MAILTRAP_SMTP_USERNAME" \
+            --smtp-password "$MAILTRAP_SMTP_PASSWORD" \
+            --transport-security starttls \
+            --from-address "$SMTP_FROM_ADDRESS" \
+            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY"
+          # Optional pre-flight (SSO-2923): confirm the SMTP target before relying on it.
+          java -jar thoryn.jar workspace email-provider verify \
+            --workspace "${{ steps.apply.outputs.slug }}" \
+            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || \
+            echo "::warning::email-provider verify failed or is unsupported by this CLI — the journey's Mailtrap poll is the real check"
+
+      # ── Start the loopback RP (the app the end user signs in to) ─────────────
+      - name: Start the loopback relying-party
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          PORT: ${{ env.RP_PORT }}
+        run: |
+          node recipes/simple-signin/apps/loopback-rp/server.js &
+          echo "RP_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${RP_PORT}/" >/dev/null 2>&1 && { echo "RP is up"; break; }
+            sleep 1
+          done
+
+      # ── Drive the Path-B browser journey (SSO-2909) ─────────────────────────
+      - name: Run the Playwright harness (Path B — Mailtrap email capture)
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
+          IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
+          # BLOCKED(SSO-2912): secrets MAILTRAP_API_TOKEN / MAILTRAP_ACCOUNT_ID /
+          # MAILTRAP_INBOX_ID must be created (the Mailtrap Email Testing API creds).
+          MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
+          MAILTRAP_ACCOUNT_ID: ${{ secrets.MAILTRAP_ACCOUNT_ID }}
+          MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+          CI: "true"
+        working-directory: e2e
+        run: |
+          set -euo pipefail
+          for v in MAILTRAP_API_TOKEN MAILTRAP_ACCOUNT_ID MAILTRAP_INBOX_ID; do
+            [ -n "${!v:-}" ] || { echo "::error::$v is not set"; exit 1; }
+          done
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-e2e-playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ── Teardown — always, even on failure (hard-deletes the workspace) ──────
+      - name: Teardown the example (delete app + hard-delete workspace)
+        if: always()
+        run: |
+          [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
+          java -jar thoryn.jar examples teardown simple-signin \
+            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || true

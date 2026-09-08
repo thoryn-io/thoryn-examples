@@ -138,13 +138,16 @@ jobs:
           set -euo pipefail
           java -jar thoryn.jar examples apply simple-signin --yes \
             --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" | tee /tmp/apply.out
-          # The receipt is also queryable via `thoryn examples receipt simple-signin`;
-          # parsing the apply output keeps this a single call. Adjust the patterns if
-          # the released CLI's receipt shape differs (LIVE-CONFIRM).
-          issuer="$(grep -oE 'https://[a-z0-9-]+\.hub\.stg\.thoryn\.org' /tmp/apply.out | head -1)"
-          client="$(grep -oE 'app-[A-Za-z0-9]+' /tmp/apply.out | head -1)"
-          slug="$(printf '%s' "$issuer" | sed -E 's#^https://([a-z0-9-]+)\.hub\.stg\.thoryn\.org$#\1#')"
-          [ -n "$issuer" ] && [ -n "$client" ] && [ -n "$slug" ] || { echo "::error::could not parse issuer/client/slug from apply output"; exit 1; }
+          # The released CLI prints the provisioned identifiers as
+          #   workspace: slug=<slug> tenantId=<uuid>
+          #   client: clientId=<clientId>
+          # (no issuer URL), so parse slug + clientId and CONSTRUCT the tenant issuer
+          # from the slug. `slug=` (no surrounding spaces) matches only the result line,
+          # not the plan's `workspaceSlug = ...`. clientId keeps hyphens (app-xxxx-yyy).
+          slug="$(grep -oE 'slug=[a-z0-9][a-z0-9-]*' /tmp/apply.out | head -1 | cut -d= -f2)"
+          client="$(grep -oE 'clientId=app-[A-Za-z0-9-]+' /tmp/apply.out | head -1 | cut -d= -f2)"
+          issuer="https://${slug}.hub.stg.thoryn.org"
+          [ -n "$slug" ] && [ -n "$client" ] || { echo "::error::could not parse slug/clientId from apply output"; sed -n '1,60p' /tmp/apply.out; exit 1; }
           {
             echo "issuer=$issuer"
             echo "client_id=$client"

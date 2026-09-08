@@ -238,22 +238,28 @@ jobs:
         env:
           SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
           SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
+          WS_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
         run: |
           set -euo pipefail
           [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
+          # `workspace email-provider` is TENANT-scoped and operates on the CLI's ACTIVE
+          # workspace (there is no --workspace/--hub flag; only --gateway). `workspace
+          # switch` is a RE-AUTH against the workspace's own hub subdomain — so re-run the
+          # WIF login targeting the provisioned tenant's issuer before configuring it.
+          # LIVE-CONFIRM: this per-tenant WIF re-auth only works if the conformance WIF
+          # client's allowed_audience admits the tenant subdomain issuer (V148 pinned it
+          # to the DEFAULT hub) — if this login is rejected, the CLI needs a --workspace
+          # flag on `email-provider` (or per-tenant WIF trust).
+          java -jar thoryn.jar login --workload-identity --issuer "$WS_ISSUER" --gateway "$THORYN_GATEWAY"
           # The CLI has NO `--smtp-password <value>` flag (secret-in-argv is banned);
-          # feed the per-run password through a 0600 tmp file so it never hits the
-          # process table.
+          # feed the per-run password through a 0600 tmp file.
           pwfile="$(mktemp)"; chmod 600 "$pwfile"
           trap 'rm -f "$pwfile"' EXIT
           printf '%s' "$SMTP_PW" > "$pwfile"
-          # transport-security = none + --allow-insecure: the ngrok/bore TCP tunnel
-          # cannot present a valid STARTTLS cert for its ephemeral hostname, so the
-          # BYO-SMTP leg is plaintext. Acceptable for a throwaway TEST sink only.
-          # LIVE-CONFIRM: the exact flag names + workspace selector (here: --workspace
-          # <slug>) must be confirmed against the released CLI.
+          # transport-security = none + --allow-insecure: the TCP tunnel cannot present a
+          # valid STARTTLS cert for its ephemeral hostname — plaintext to a throwaway sink.
           java -jar thoryn.jar workspace email-provider set \
-            --workspace "${{ steps.apply.outputs.slug }}" \
             --smtp-host "$SINK_SMTP_HOST" \
             --smtp-port "$SINK_SMTP_PORT" \
             --smtp-username ci \
@@ -261,12 +267,10 @@ jobs:
             --transport-security none \
             --allow-insecure \
             --from-address "$SMTP_FROM_ADDRESS" \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY"
-          # Optional pre-flight (SSO-2923): confirm the SMTP target before relying on it.
-          java -jar thoryn.jar workspace email-provider verify \
-            --workspace "${{ steps.apply.outputs.slug }}" \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || \
-            echo "::warning::email-provider verify failed or is unsupported by this CLI — the journey's Mailpit poll is the real check"
+            --gateway "$THORYN_GATEWAY"
+          # Pre-flight (SSO-2923): confirm the SMTP target before relying on it.
+          java -jar thoryn.jar workspace email-provider verify --gateway "$THORYN_GATEWAY" || \
+            echo "::warning::email-provider verify failed or is unsupported — the journey's Mailpit poll is the real check"
 
       # ── Start the loopback RP (the app the end user signs in to) ─────────────
       - name: Start the loopback relying-party

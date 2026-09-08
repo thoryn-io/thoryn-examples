@@ -70,6 +70,30 @@ product fails here — a red recipe blocks a release. Provision the workflow's s
 (`THORYN_CI_CLIENT_ID`, `THORYN_CI_CLIENT_SECRET`, `OATHY_CLI_TOKEN`) once; see the workflow
 header.
 
+### Browser e2e (`example-e2e.yml`) — _scaffold, not yet activated_
+
+`.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912) goes one step further than
+conformance: it drives `simple-signin` through a **real browser** against staging — a
+genuine self-service sign-up whose **verification email is captured from an ephemeral,
+in-job [Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP,
+SSO-2917) — then signs in through the recipe's loopback RP to a protected page. The
+harness lives in [`e2e/`](e2e/).
+
+The sink is **fully ephemeral — no external service, no VM**: the workflow runs Mailpit
+as a Docker container inside the runner and opens a **public TCP tunnel** (ngrok by
+default; `bore.pub` no-account fallback) to its SMTP port so staging's identity can
+deliver the email; the harness reads it back over Mailpit's **local** API. Everything is
+torn down with the job. The SMTP hop over the tunnel is plaintext (the tunnel can't
+present a STARTTLS cert for its ephemeral host) — fine for a throwaway TEST mailbox.
+
+It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the WIF login step
+until a maintainer creates **three** repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
+`OATHY_CLI_TOKEN`, and `NGROK_AUTHTOKEN` (free ngrok account; unneeded if you set the
+repo variable `SINK_TUNNEL=bore`) — and a first live run confirms the tenant
+self-service-signup entry, the BYO-SMTP→tunnel→Mailpit delivery, and the RP OIDC
+round-trip. See [`e2e/README.md`](e2e/README.md) for the full secret table and the
+live-confirm list.
+
 ## Licence
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

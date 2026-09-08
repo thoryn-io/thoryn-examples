@@ -22,17 +22,16 @@ name: conformance
 # identity.registerUser, and email-provider steps of `simple-signin` are NOT conformance-covered here
 # under the API-key model — that gap is tracked on SSO-2943 (a delegatable workspace-create scope).
 #
-# PREREQUISITE (release sequencing) — the `ci-signin` recipe must be BUNDLED in the released thoryn CLI
-# jar for `examples apply ci-signin` to resolve. As of this change the `cli-v*` release (built from
-# oathy `tools/cli`) bundles only `simple-signin`; `ci-signin` exists in thoryn-io/thoryn-cli. So this
-# workflow goes green only once the released CLI ships `ci-signin` (port it into oathy tools/cli + cut a
-# `cli-v*` release). This story is thoryn-examples-only and does NOT make that CLI change.
+# CLI SOURCE — the prebuilt `thoryn.jar` is downloaded from the LATEST `cli-v*` release of
+# thoryn-io/thoryn-cli, which bundles the `ci-signin` recipe this workflow applies. (Historically the
+# CLI released from oathy `tools/cli`, which bundles only `simple-signin`; the download was repointed
+# to thoryn-cli once it cut its first `cli-v*` release — SSO-2940 / SSO-2934.)
 #
 # Required repo config (provision once — see README "CI provisioning setup"):
 #   secret  THORYN_API_KEY     — <client-id>:<client-secret> of a client-credentials key scoped to the
 #                                standing workspace, granted tenant:applications.write +
 #                                tenant:applications.read. NEVER a literal (this repo is public).
-#   secret  OATHY_CLI_TOKEN    — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
+#   secret  OATHY_CLI_TOKEN    — a token (PAT / GitHub App) that can read thoryn-io/thoryn-cli RELEASES, to
 #                                download the prebuilt thoryn CLI jar (published on a `cli-v*` tag).
 #   var     CI_WORKSPACE_SLUG  — slug of the STANDING conformance workspace the API key is scoped to.
 
@@ -76,10 +75,10 @@ jobs:
           GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
         run: |
           set -euo pipefail
-          tag="$(gh release list --repo thoryn-io/oauthy --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
-          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/oauthy — run its cli-release workflow first"; exit 1; }
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli — run its release workflow first"; exit 1; }
           echo "Using CLI release $tag"
-          gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
 
       - name: Sign in (client-credentials API key at the standing workspace issuer)
         env:

@@ -20,10 +20,10 @@ name: example-e2e
 # the ephemeral app) AND tenant:email.write (point the standing workspace's BYO-SMTP at the per-run
 # tunnel — the tunnel is ephemeral, so the SMTP config must be (re)applied every run).
 #
-# PREREQUISITE (release sequencing) — the `ci-signin` recipe must be BUNDLED in the released thoryn CLI
-# jar for `examples apply ci-signin` to resolve. The `cli-v*` release (built from oathy `tools/cli`)
-# bundles only `simple-signin` today; `ci-signin` lives in thoryn-io/thoryn-cli. So this workflow goes
-# green only once the released CLI ships `ci-signin`. This story is thoryn-examples-only.
+# CLI SOURCE — the prebuilt `thoryn.jar` is downloaded from the LATEST `cli-v*` release of
+# thoryn-io/thoryn-cli, which bundles the `ci-signin` recipe this workflow applies. (Historically the
+# CLI released from oathy `tools/cli`, which bundles only `simple-signin`; the download was repointed
+# to thoryn-cli once it cut its first `cli-v*` release — SSO-2940 / SSO-2934.)
 #
 # How the sink works (product-owner decision — fully ephemeral, zero standing cost):
 #   • Mailpit runs as a Docker container INSIDE the runner: :1025 = SMTP, :8025 = HTTP API.
@@ -122,18 +122,18 @@ jobs:
         with:
           node-version: "20"
 
-      # ── Fetch the prebuilt thoryn CLI (published by oauthy's cli-release) ────
+      # ── Fetch the prebuilt thoryn CLI (published by thoryn-cli's release) ────
       - name: Download the prebuilt thoryn CLI (latest cli-v* release)
         env:
-          # secret OATHY_CLI_TOKEN — a token that can read thoryn-io/oauthy releases (same as
+          # secret OATHY_CLI_TOKEN — a token that can read thoryn-io/thoryn-cli releases (same as
           # conformance.yml).
           GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
         run: |
           set -euo pipefail
-          tag="$(gh release list --repo thoryn-io/oauthy --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
-          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/oauthy — run its cli-release workflow first"; exit 1; }
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli — run its release workflow first"; exit 1; }
           echo "Using CLI release $tag"
-          gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
 
       # ── Authenticate the CLI with a customer-plane client-credentials API key (SSO-2942) ──
       - name: Sign in (client-credentials API key at the standing workspace issuer)

@@ -1,26 +1,40 @@
 name: conformance
 
-# SSO-2877 / SSO-2879 — run every recipe apply → verify → teardown against STAGING with the real
-# thoryn CLI, so a recipe that has drifted from the product (or a product change that breaks a recipe)
-# fails here. This is the self-maintaining half of the catalog: a red recipe blocks a release.
+# SSO-2942 (epic SSO-2934) — run a recipe apply → verify → teardown against STAGING with the real
+# thoryn CLI, so a product change that breaks the recipe's product-API contract fails here nightly.
+# This is the self-maintaining half of the catalog: a red recipe blocks a release.
 #
-# Runs nightly and on demand. Authenticated SECRET-LESS via GitHub Actions OIDC → the hub's Workload
-# Identity Federation (RFC 8693 token-exchange): the runner's short-lived OIDC token is exchanged for a
-# hub access token, and the exchange client authenticates with an asymmetric key (private_key_jwt). No
-# shared client secret is stored. See ADR oathy adrs/2026-09-06-conformance-ci-github-oidc-wif.md.
+# AUTH (SSO-2942 — moved OFF Workload Identity Federation): CI now authenticates with a CUSTOMER-PLANE
+# `client_credentials` API KEY the operator mints themselves (the model proven green in thoryn-cli's
+# provision Action). No GitHub OIDC, no `id-token: write`, no private signing key, no hub-side WIF
+# trust. The key is TENANT-SCOPED — bound to one STANDING workspace via its `tnt` claim — and it
+# authenticates at that workspace's PER-TENANT issuer (`https://<slug>.hub.stg.thoryn.org`).
 #
-# Required repo secrets (provision once):
-#   THORYN_CI_WIF_SIGNING_KEY — the EC P-256 (ES256) PRIVATE key for the exchange client
-#                               `conformance-ci-github-wif`. The PUBLIC half is registered on the hub
-#                               inline in migration V143 (kid=ci-conformance-wif-v1) — nothing to host.
-#   OATHY_CLI_TOKEN           — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
-#                               download the prebuilt thoryn CLI jar (published by oauthy's cli-release
-#                               workflow on a `cli-v*` tag).
+# CRITICAL: the hub grants a client-credentials token ONLY the scopes explicitly requested (an empty
+# request yields a scope-less token that 403s every scoped call — it does NOT fall back to the key's
+# registered set). So the sign-in requests exactly the scopes the recipe needs.
 #
-# The hub trust (tenant `ci-conformance`, client `conformance-ci-github-wif`, issuer
-# token.actions.githubusercontent.com, audience = the hub issuer below, subject pinned to
-# ^repo:thoryn-io/thoryn-examples:.*$) is seeded in hub V143 — the CLI defaults already match it, so
-# the login line needs no client-id / tenant / kid flags. Staging hosts are the known constants below.
+# COVERAGE NOTE — a tenant-scoped API key CANNOT create workspaces (workspace-create needs a machine
+# scope a tenant admin can't delegate — the SSO-2943 gap). So conformance no longer exercises the
+# repo's `simple-signin` recipe, whose first step is `hub.createWorkspace`. It exercises the
+# WORKSPACE-LESS `ci-signin` recipe (bundled in the CLI) INSIDE the standing workspace instead:
+# applications.create → applications.get (verify) → applications.delete. The workspace-lifecycle,
+# identity.registerUser, and email-provider steps of `simple-signin` are NOT conformance-covered here
+# under the API-key model — that gap is tracked on SSO-2943 (a delegatable workspace-create scope).
+#
+# PREREQUISITE (release sequencing) — the `ci-signin` recipe must be BUNDLED in the released thoryn CLI
+# jar for `examples apply ci-signin` to resolve. As of this change the `cli-v*` release (built from
+# oathy `tools/cli`) bundles only `simple-signin`; `ci-signin` exists in thoryn-io/thoryn-cli. So this
+# workflow goes green only once the released CLI ships `ci-signin` (port it into oathy tools/cli + cut a
+# `cli-v*` release). This story is thoryn-examples-only and does NOT make that CLI change.
+#
+# Required repo config (provision once — see README "CI provisioning setup"):
+#   secret  THORYN_API_KEY     — <client-id>:<client-secret> of a client-credentials key scoped to the
+#                                standing workspace, granted tenant:applications.write +
+#                                tenant:applications.read. NEVER a literal (this repo is public).
+#   secret  OATHY_CLI_TOKEN    — a token (PAT / GitHub App) that can read thoryn-io/oauthy RELEASES, to
+#                                download the prebuilt thoryn CLI jar (published on a `cli-v*` tag).
+#   var     CI_WORKSPACE_SLUG  — slug of the STANDING conformance workspace the API key is scoped to.
 
 on:
   schedule:
@@ -28,19 +42,22 @@ on:
   workflow_dispatch:
     inputs:
       recipe:
-        description: "Only run this recipe id (default: all)"
+        description: "Workspace-less recipe id to run (default: ci-signin)"
         required: false
+        default: ci-signin
 
 permissions:
-  contents: read # checkout
-  id-token: write # mint the GitHub Actions OIDC token the WIF login exchanges
+  contents: read # checkout only — no id-token: the API-key flow needs no GitHub OIDC
 
 env:
   THORYN_HUB: https://hub.stg.thoryn.org
   THORYN_GATEWAY: https://api.stg.thoryn.org
+  # The STANDING conformance workspace the API key is scoped to (its `tnt`). Set as a repo variable so
+  # the operator owns it; the per-tenant issuer is derived from it below.
+  STANDING_WORKSPACE_SLUG: ${{ vars.CI_WORKSPACE_SLUG }}
   # The runner is headless with no OS keyring, so the CLI's default token store is unavailable and
   # (per ADR 2026-04-25 §4) it refuses to silently write plaintext. This is the sanctioned CI opt-in:
-  # the token is short-lived (WIF-minted) and the runner is ephemeral and destroyed after the job.
+  # the token is short-lived (client-credentials, no refresh) and the runner is destroyed after the job.
   THORYN_CI_PLAINTEXT_TOKENS: "1"
 
 jobs:
@@ -64,34 +81,46 @@ jobs:
           echo "Using CLI release $tag"
           gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
 
-      - name: Sign in (GitHub Actions OIDC → hub Workload Identity Federation)
+      - name: Sign in (client-credentials API key at the standing workspace issuer)
         env:
-          # The CLI reads the runner's OIDC token from ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN (present
-          # because id-token: write above) and signs the private_key_jwt client assertion with this key.
-          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
+          # <client-id>:<client-secret> — read from the env by the CLI, never on argv or in logs.
+          THORYN_API_KEY: ${{ secrets.THORYN_API_KEY }}
         run: |
           set -euo pipefail
-          [ -n "${THORYN_CI_WIF_SIGNING_KEY:-}" ] || { echo "::error::THORYN_CI_WIF_SIGNING_KEY is not set"; exit 1; }
-          # --workload-identity defaults tenant=ci-conformance, client=conformance-ci-github-wif,
-          # kid=ci-conformance-wif-v1, and requests the OIDC audience = --issuer (the hub's allowed_audience).
-          java -jar thoryn.jar login --workload-identity --issuer "$THORYN_HUB"
+          [ -n "${THORYN_API_KEY:-}" ] || { echo "::error::THORYN_API_KEY is not set — mint a client-credentials key scoped to the standing workspace (see README 'CI provisioning setup')"; exit 1; }
+          [ -n "${STANDING_WORKSPACE_SLUG:-}" ] || { echo "::error::repo variable CI_WORKSPACE_SLUG is not set — the standing conformance workspace slug the key is scoped to"; exit 1; }
+          # The key is registered IN the standing workspace's tenant, so it authenticates at the
+          # PER-TENANT issuer (NOT the default hub issuer). The gateway is the shared customer-plane
+          # host for every tenant. Both are stamped onto the session (SSO-2827) so the later
+          # `examples` commands need no host flags.
+          issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
+          echo "Signing in at $issuer (gateway $THORYN_GATEWAY)."
+          # Request EXACTLY the scopes ci-signin needs: applications.write (create) +
+          # applications.read (the post-create applications.get verify). The hub mints a token with
+          # only these; an empty --scope would 403 applications.create.
+          java -jar thoryn.jar login --client-credentials \
+            --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
+            --scope "tenant:applications.write tenant:applications.read"
+          java -jar thoryn.jar login --status
 
-      - name: Recipe conformance — apply → verify → teardown
+      - name: Recipe conformance — apply → verify → teardown (workspace-less)
+        env:
+          RECIPE: ${{ github.event.inputs.recipe || 'ci-signin' }}
         run: |
           set -uo pipefail
           CLI="java -jar thoryn.jar"
-          only='${{ github.event.inputs.recipe }}'
+          slug="$STANDING_WORKSPACE_SLUG"
           fail=0
-          for d in recipes/*/; do
-            id="$(basename "$d")"
-            if [ -n "$only" ] && [ "$only" != "$id" ]; then continue; fi
-            echo "::group::$id"
-            ok=1
-            $CLI examples apply "$id" --yes --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || ok=0
-            if [ "$ok" = 1 ]; then $CLI examples verify "$id" --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || ok=0; fi
-            # Always attempt teardown so a failed run doesn't leave residue.
-            $CLI examples teardown "$id" --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || true
-            if [ "$ok" = 0 ]; then echo "::error::recipe '$id' failed conformance"; fail=1; fi
-            echo "::endgroup::"
-          done
+          echo "::group::$RECIPE"
+          ok=1
+          # `--set workspaceSlug=<standing-slug>` names the workspace the app is created in (the one the
+          # API key is scoped to). ci-signin has NO hub.createWorkspace step — it drives applications.*
+          # with the caller's own tenant-scoped bearer. Hosts come from the stamped session.
+          $CLI examples apply "$RECIPE" --set "workspaceSlug=${slug}" --yes || ok=0
+          if [ "$ok" = 1 ]; then $CLI examples verify "$RECIPE" || ok=0; fi
+          # Always attempt teardown so a failed run doesn't leave the ephemeral app behind. The standing
+          # workspace itself is the operator's and is NEVER touched (ci-signin has no deleteWorkspace).
+          $CLI examples teardown "$RECIPE" || true
+          if [ "$ok" = 0 ]; then echo "::error::recipe '$RECIPE' failed conformance"; fail=1; fi
+          echo "::endgroup::"
           exit $fail

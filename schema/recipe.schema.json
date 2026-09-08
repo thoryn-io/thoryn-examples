@@ -76,7 +76,8 @@
               "applications.delete",
               "federation.create",
               "federation.delete",
-              "identity.registerUser"
+              "identity.registerUser",
+              "tenant.configureEmailProvider"
             ]
           },
           "with": { "type": "object" },

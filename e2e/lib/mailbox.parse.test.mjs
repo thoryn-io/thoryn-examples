@@ -1,7 +1,7 @@
 // SSO-2909 — standalone node:test unit for the verification-link parse seam.
 // Runs WITHOUT staging creds or a browser (`node --test lib/mailbox.parse.test.mjs`,
 // wired as `npm run test:unit`). This is the one piece of the harness testable in
-// isolation — the parse regex is exactly what the live Mailtrap capture depends on.
+// isolation — the parse regex is exactly what the live Mailpit capture depends on.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractVerificationLink } from "./verification-link.mjs";

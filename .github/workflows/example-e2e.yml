@@ -2,15 +2,17 @@ name: example-e2e
 
 # SSO-2909 (harness) + SSO-2912 (workflow), epic SSO-2906 — drive the `simple-signin`
 # example end-to-end against the STAGING SaaS in a real browser, capturing the REAL
-# verification email from a managed Mailtrap Email Testing inbox so a genuine
-# self-service sign-up can proceed (Path B). NO k3d, NO self-deployed stack: the CLI
-# talks to staging exactly as a customer would.
+# verification email from a SELF-HOSTED Mailpit sink so a genuine self-service
+# sign-up can proceed (Path B). NO k3d, NO self-deployed stack: the CLI talks to
+# staging exactly as a customer would. The mail sink is a Mailpit instance the
+# operator runs on a public host (free; product-owner decision) — a BYO-SMTP relay
+# plus a read API, self-hosted so the sink costs nothing.
 #
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │  SCAFFOLD — NOT YET ACTIVATED. Until the maintainer creates the secrets below │
 # │  (see e2e/README.md) this workflow is workflow_dispatch-only and FAILS at the │
 # │  WIF login step. A FIRST live run must also confirm the seams the harness     │
-# │  marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→Mailtrap       │
+# │  marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→Mailpit        │
 # │  delivery, the RP OIDC round-trip). Do NOT treat a green local scaffold as a   │
 # │  green pipeline.                                                               │
 # └─────────────────────────────────────────────────────────────────────────────┘
@@ -21,9 +23,9 @@ name: example-e2e
 #
 # The journey (orchestrated below):
 #   WIF login → `examples apply simple-signin` (fresh workspace + public app + user)
-#   → point the workspace BYO-SMTP at Mailtrap (SSO-2917) → start the recipe's
-#   loopback RP → Playwright Path-B journey (self-service sign-up → capture email
-#   from Mailtrap → verify → sign in via RP → /protected) → `examples teardown`.
+#   → point the workspace BYO-SMTP at the self-hosted Mailpit SMTP (SSO-2917) → start
+#   the recipe's loopback RP → Playwright Path-B journey (self-service sign-up →
+#   capture email from Mailpit → verify → sign in via RP → /protected) → `examples teardown`.
 
 on:
   workflow_dispatch:
@@ -54,8 +56,8 @@ env:
   # (same as conformance.yml): the token is short-lived (WIF-minted), runner ephemeral.
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
-  # The tenant BYO-SMTP "from" address. Mailtrap Email Testing captures every message
-  # regardless of sender; a reserved .example domain keeps it unmistakably non-routable.
+  # The tenant BYO-SMTP "from" address. Mailpit captures every message regardless of
+  # sender; a reserved .example domain keeps it unmistakably non-routable.
   SMTP_FROM_ADDRESS: noreply@simple-signin.thoryn.example
 
 jobs:
@@ -129,38 +131,56 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client)"
 
-      # ── Point the workspace BYO-SMTP at Mailtrap (SSO-2917 / SSO-2918) ───────
-      - name: Configure the workspace email provider → Mailtrap Email Testing
+      # ── Point the workspace BYO-SMTP at self-hosted Mailpit (SSO-2917 / SSO-2918) ──
+      - name: Configure the workspace email provider → self-hosted Mailpit SMTP
         env:
-          # BLOCKED(SSO-2912): secrets MAILTRAP_SMTP_HOST / MAILTRAP_SMTP_PORT /
-          # MAILTRAP_SMTP_USERNAME / MAILTRAP_SMTP_PASSWORD must be created (the
-          # Mailtrap sandbox inbox's SMTP settings). Host is PUBLIC → SmtpTargetGuard
-          # allows it with no allow-list entry.
-          MAILTRAP_SMTP_HOST: ${{ secrets.MAILTRAP_SMTP_HOST }}
-          MAILTRAP_SMTP_PORT: ${{ secrets.MAILTRAP_SMTP_PORT }}
-          MAILTRAP_SMTP_USERNAME: ${{ secrets.MAILTRAP_SMTP_USERNAME }}
-          MAILTRAP_SMTP_PASSWORD: ${{ secrets.MAILTRAP_SMTP_PASSWORD }}
+          # BLOCKED(SSO-2912): secrets MAILPIT_SMTP_HOST / MAILPIT_SMTP_PORT /
+          # MAILPIT_SMTP_USERNAME / MAILPIT_SMTP_PASSWORD must be created (the public
+          # Mailpit instance's SMTP endpoint). Host is PUBLIC → SmtpTargetGuard allows
+          # it with no allow-list entry. MAILPIT_SMTP_TRANSPORT is optional
+          # (starttls|ssl|none, default starttls).
+          MAILPIT_SMTP_HOST: ${{ secrets.MAILPIT_SMTP_HOST }}
+          MAILPIT_SMTP_PORT: ${{ secrets.MAILPIT_SMTP_PORT }}
+          MAILPIT_SMTP_USERNAME: ${{ secrets.MAILPIT_SMTP_USERNAME }}
+          MAILPIT_SMTP_PASSWORD: ${{ secrets.MAILPIT_SMTP_PASSWORD }}
+          MAILPIT_SMTP_TRANSPORT: ${{ secrets.MAILPIT_SMTP_TRANSPORT }}
         run: |
           set -euo pipefail
-          for v in MAILTRAP_SMTP_HOST MAILTRAP_SMTP_PORT MAILTRAP_SMTP_USERNAME MAILTRAP_SMTP_PASSWORD; do
+          for v in MAILPIT_SMTP_HOST MAILPIT_SMTP_PORT MAILPIT_SMTP_USERNAME MAILPIT_SMTP_PASSWORD; do
             [ -n "${!v:-}" ] || { echo "::error::$v is not set"; exit 1; }
           done
+          # Default to starttls: assume the operator runs Mailpit SMTP behind TLS so we
+          # never need --allow-insecure. An operator who runs it in PLAINTEXT sets
+          # MAILPIT_SMTP_TRANSPORT=none, and only then do we add --allow-insecure.
+          transport="${MAILPIT_SMTP_TRANSPORT:-starttls}"
+          # The CLI has NO `--smtp-password <value>` flag (secret-in-argv is banned);
+          # feed the password through a 0600 tmp file so it never hits the process table.
+          pwfile="$(mktemp)"; chmod 600 "$pwfile"
+          trap 'rm -f "$pwfile"' EXIT
+          printf '%s' "$MAILPIT_SMTP_PASSWORD" > "$pwfile"
           # LIVE-CONFIRM: the exact flag names + how the target workspace is selected
           # (here: --workspace <slug>) must be confirmed against the released CLI.
-          java -jar thoryn.jar workspace email-provider set \
-            --workspace "${{ steps.apply.outputs.slug }}" \
-            --smtp-host "$MAILTRAP_SMTP_HOST" \
-            --smtp-port "$MAILTRAP_SMTP_PORT" \
-            --smtp-username "$MAILTRAP_SMTP_USERNAME" \
-            --smtp-password "$MAILTRAP_SMTP_PASSWORD" \
-            --transport-security starttls \
-            --from-address "$SMTP_FROM_ADDRESS" \
+          args=(
+            workspace email-provider set
+            --workspace "${{ steps.apply.outputs.slug }}"
+            --smtp-host "$MAILPIT_SMTP_HOST"
+            --smtp-port "$MAILPIT_SMTP_PORT"
+            --smtp-username "$MAILPIT_SMTP_USERNAME"
+            --smtp-password-file "$pwfile"
+            --transport-security "$transport"
+            --from-address "$SMTP_FROM_ADDRESS"
             --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY"
+          )
+          # Plaintext SMTP (no TLS) needs the explicit guard override.
+          if [ "$transport" = "none" ]; then
+            args+=(--allow-insecure)
+          fi
+          java -jar thoryn.jar "${args[@]}"
           # Optional pre-flight (SSO-2923): confirm the SMTP target before relying on it.
           java -jar thoryn.jar workspace email-provider verify \
             --workspace "${{ steps.apply.outputs.slug }}" \
             --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || \
-            echo "::warning::email-provider verify failed or is unsupported by this CLI — the journey's Mailtrap poll is the real check"
+            echo "::warning::email-provider verify failed or is unsupported by this CLI — the journey's Mailpit poll is the real check"
 
       # ── Start the loopback RP (the app the end user signs in to) ─────────────
       - name: Start the loopback relying-party
@@ -177,24 +197,23 @@ jobs:
           done
 
       # ── Drive the Path-B browser journey (SSO-2909) ─────────────────────────
-      - name: Run the Playwright harness (Path B — Mailtrap email capture)
+      - name: Run the Playwright harness (Path B — Mailpit email capture)
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
-          # BLOCKED(SSO-2912): secrets MAILTRAP_API_TOKEN / MAILTRAP_ACCOUNT_ID /
-          # MAILTRAP_INBOX_ID must be created (the Mailtrap Email Testing API creds).
-          MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
-          MAILTRAP_ACCOUNT_ID: ${{ secrets.MAILTRAP_ACCOUNT_ID }}
-          MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+          # BLOCKED(SSO-2912): secret MAILPIT_BASE_URL must be created (the public
+          # https URL of the operator's Mailpit UI/API). MAILPIT_API_USERNAME /
+          # MAILPIT_API_PASSWORD are optional — only needed for a `--ui-auth` Mailpit.
+          MAILPIT_BASE_URL: ${{ secrets.MAILPIT_BASE_URL }}
+          MAILPIT_API_USERNAME: ${{ secrets.MAILPIT_API_USERNAME }}
+          MAILPIT_API_PASSWORD: ${{ secrets.MAILPIT_API_PASSWORD }}
           CI: "true"
         working-directory: e2e
         run: |
           set -euo pipefail
-          for v in MAILTRAP_API_TOKEN MAILTRAP_ACCOUNT_ID MAILTRAP_INBOX_ID; do
-            [ -n "${!v:-}" ] || { echo "::error::$v is not set"; exit 1; }
-          done
+          [ -n "${MAILPIT_BASE_URL:-}" ] || { echo "::error::MAILPIT_BASE_URL is not set"; exit 1; }
           npm ci
           npx playwright install --with-deps chromium
           npm test

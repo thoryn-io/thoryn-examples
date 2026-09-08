@@ -8,8 +8,15 @@
 
 A Playwright harness that runs the **Path B** journey: a genuine self-service sign-up
 of a brand-new end user on a freshly-provisioned workspace, capturing the **real
-verification email** from a managed **Mailtrap Email Testing** inbox so the flow can
-proceed — no DB injection, no stubbing.
+verification email** from a **self-hosted [Mailpit](https://mailpit.axllent.org/)**
+sink so the flow can proceed — no DB injection, no stubbing.
+
+> **You must run a public Mailpit.** The sink is a Mailpit instance _you_ operate on a
+> public host (it is free, product-owner decision). It is a BYO-SMTP relay plus a read
+> API: the workspace's BYO-SMTP is pointed at Mailpit's **SMTP** endpoint, and this
+> harness reads the captured mail over Mailpit's **HTTP API**. Give the maintainer
+> secrets below the public UI/API URL (`MAILPIT_BASE_URL`), the SMTP host/port, and —
+> if you start Mailpit with `--ui-auth` / SMTP auth — the credentials.
 
 ## The journey (`tests/simple-signin-journey.spec.ts`)
 
@@ -18,7 +25,7 @@ proceed — no DB injection, no stubbing.
    hub federates to the tenant's identity → its hosted login renders.
 2. Follow the hosted login's self-service **Sign up** path → register a unique email
    → "Check your email".
-3. Poll **Mailtrap's API** until the verification email to that address lands; extract
+3. Poll **Mailpit's API** until the verification email to that address lands; extract
    the real `/verify-email?token=…` link.
 4. Follow the link → "Your email is verified".
 5. Return to the RP → sign in with the verified creds → callback → RP `/protected`
@@ -28,9 +35,9 @@ proceed — no DB injection, no stubbing.
 
 | Path | Purpose |
 |---|---|
-| `lib/config.ts` | staging + Mailtrap + RP URLs, env-overridable |
+| `lib/config.ts` | staging + Mailpit + RP URLs, env-overridable |
 | `lib/verification-link.mjs` | the pure verify-link parse seam (single source of truth) |
-| `lib/mailbox.ts` | Mailtrap Email Testing API capture (list → body → parse) |
+| `lib/mailbox.ts` | Mailpit HTTP-API capture (search → body → parse; list fallback) |
 | `lib/mailbox.parse.test.mjs` | `node:test` unit for the parse seam — runs WITHOUT creds |
 | `tests/simple-signin-journey.spec.ts` | the Path-B journey + a garbage-token error path |
 
@@ -45,12 +52,13 @@ npm run test:unit
 # Type-check the harness:
 npm run typecheck
 
-# Against staging (needs a provisioned workspace + a running loopback RP + a Mailtrap inbox):
+# Against staging (needs a provisioned workspace + a running loopback RP + a public Mailpit):
 RP_BASE_URL=http://127.0.0.1:8471 \
 THORYN_ISSUER=https://<workspace>.hub.stg.thoryn.org \
 THORYN_CLIENT_ID=app-XXXXXXXX \
 IDENTITY_BASE_URL=https://identity.stg.thoryn.org \
-MAILTRAP_ACCOUNT_ID=<id> MAILTRAP_INBOX_ID=<id> MAILTRAP_API_TOKEN=<token> \
+MAILPIT_BASE_URL=https://mail.example.org \
+# MAILPIT_API_USERNAME=<user> MAILPIT_API_PASSWORD=<pass>   # only for a --ui-auth Mailpit
 npm run install-browser && npm test
 ```
 
@@ -63,19 +71,20 @@ The workflow references these repo secrets. Until they exist it is
 `workflow_dispatch`-only and fails at the login step. Create them under
 **Settings → Secrets and variables → Actions**:
 
-| Secret | What it is |
-|---|---|
-| `THORYN_CI_WIF_SIGNING_KEY` | EC P-256 (ES256) **private** key (PKCS#8 PEM) for the `conformance-ci-github-wif` exchange client. Public half is registered on the hub (oathy migration; subject pinned to `repo:thoryn-io/thoryn-examples:*`). Same secret the `conformance.yml` workflow uses. |
-| `OATHY_CLI_TOKEN` | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
-| `MAILTRAP_API_TOKEN` | Mailtrap **Email Testing** API token (sent as the `Api-Token` header). |
-| `MAILTRAP_ACCOUNT_ID` | Mailtrap account id (the `/api/accounts/{id}` path segment). |
-| `MAILTRAP_INBOX_ID` | Mailtrap Email-Testing inbox id to capture from. |
-| `MAILTRAP_SMTP_HOST` | Mailtrap sandbox SMTP host, e.g. `sandbox.smtp.mailtrap.io`. |
-| `MAILTRAP_SMTP_PORT` | Mailtrap sandbox SMTP port, e.g. `587` (STARTTLS) or `2525`. |
-| `MAILTRAP_SMTP_USERNAME` | The inbox's SMTP username (from the inbox's SMTP settings). |
-| `MAILTRAP_SMTP_PASSWORD` | The inbox's SMTP password. |
+| Secret | Required | What it is |
+|---|---|---|
+| `THORYN_CI_WIF_SIGNING_KEY` | yes | EC P-256 (ES256) **private** key (PKCS#8 PEM) for the `conformance-ci-github-wif` exchange client. Public half is registered on the hub (oathy migration; subject pinned to `repo:thoryn-io/thoryn-examples:*`). Same secret the `conformance.yml` workflow uses. |
+| `OATHY_CLI_TOKEN` | yes | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
+| `MAILPIT_BASE_URL` | yes | Public **https** URL of your Mailpit UI/API, e.g. `https://mail.example.org`. The harness reads captured mail here. |
+| `MAILPIT_API_USERNAME` | no | Basic-auth username for the Mailpit API — only if you run Mailpit with `--ui-auth`. |
+| `MAILPIT_API_PASSWORD` | no | Basic-auth password for the Mailpit API — only if you run Mailpit with `--ui-auth`. |
+| `MAILPIT_SMTP_HOST` | yes | Your Mailpit **SMTP** host, e.g. `mail.example.org`. |
+| `MAILPIT_SMTP_PORT` | yes | Your Mailpit SMTP port, e.g. `587` (STARTTLS) or `465` (SSL). |
+| `MAILPIT_SMTP_USERNAME` | yes | SMTP username (Mailpit `--smtp-auth`). |
+| `MAILPIT_SMTP_PASSWORD` | yes | SMTP password (Mailpit `--smtp-auth`). Fed to the CLI via a tmp file, never on argv. |
+| `MAILPIT_SMTP_TRANSPORT` | no | `starttls` (default) \| `ssl` \| `none`. Use `none` only for a plaintext Mailpit — the workflow then adds `--allow-insecure`. |
 
-The Mailtrap SMTP host is **public**, so the tenant BYO-SMTP guard (`SmtpTargetGuard`)
+Your Mailpit SMTP host is **public**, so the tenant BYO-SMTP guard (`SmtpTargetGuard`)
 allows it with no allow-list entry.
 
 ## What only a first live run can confirm
@@ -85,7 +94,7 @@ allows it with no allow-list entry.
 - **The tenant self-service-signup entry** — that the workspace's cloned identity
   member exposes a self-service "Sign up" link from its hosted login, and its exact
   accessible name / form selectors (`gotoRegisterFromLogin`).
-- **BYO-SMTP → Mailtrap delivery** — that `thoryn workspace email-provider set`
-  actually routes the verification email to the Mailtrap inbox.
+- **BYO-SMTP → Mailpit delivery** — that `thoryn workspace email-provider set`
+  actually routes the verification email to the Mailpit sink.
 - **The RP OIDC round-trip** — that the freshly-verified account authenticates through
   the workspace hub federation and lands on the RP's `/protected` page.

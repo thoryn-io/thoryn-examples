@@ -1,10 +1,10 @@
 /**
  * SSO-2909 — the simple-signin example, driven end-to-end in a real browser against
  * the STAGING SaaS, INCLUDING a genuinely-sent verification email captured from a
- * managed Mailtrap Email Testing inbox. This is Path B (real self-service sign-up +
+ * self-hosted Mailpit sink. This is Path B (real self-service sign-up +
  * email capture): a brand-new end user registers on the provisioned workspace, which
  * makes identity SEND a verification email over the tenant's BYO-SMTP (pointed at
- * Mailtrap by the workflow). The recipe's own identity.registerUser step pre-verifies
+ * Mailpit by the workflow). The recipe's own identity.registerUser step pre-verifies
  * WITHOUT an email — that is a convenience for the conformance run, not this path.
  *
  *   1. Open the REAL loopback RP (recipes/simple-signin/apps/loopback-rp/server.js):
@@ -12,7 +12,7 @@
  *      → the hub federates to the tenant's identity → its hosted login renders.
  *   2. From the hosted login, follow the self-service "Sign up / Create account"
  *      path → fill the register form with a UNIQUE email → "Check your email".
- *   3. Poll Mailtrap's API until the verification email to THIS address lands;
+ *   3. Poll Mailpit's API until the verification email to THIS address lands;
  *      extract the real `<identity>/verify-email?token=…` link from its body.
  *   4. Follow the link → branded "Your email is verified" (single-use token consumed).
  *   5. Return to the RP → Sign in → hosted login → sign in with the registered creds
@@ -24,7 +24,7 @@
  * │ `LIVE-CONFIRM` below:                                                          │
  * │  (a) the tenant hosted-login → self-service register entry (selectors + that   │
  * │      self-service sign-up is enabled on the cloned identity member),           │
- * │  (b) BYO-SMTP → Mailtrap actually delivers the verification email, and         │
+ * │  (b) BYO-SMTP → Mailpit actually delivers the verification email, and          │
  * │  (c) the freshly-verified account completes the RP OIDC round-trip.            │
  * │ Form selectors mirror oathy e2e/scenario/tests/hosted-signup-to-console.spec   │
  * │ (register.html #registerForm / login.html #passwordForm).                      │
@@ -34,7 +34,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { config } from "../lib/config";
 import { findVerificationLink } from "../lib/mailbox";
 
-/** Unique per run so reruns never 409 and the Mailtrap match is unambiguous. */
+/** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
 function uniqueEmail(): string {
   return `example-signin-${Date.now()}-${Math.floor(Math.random() * 1e6)}@thoryn.test`;
 }
@@ -79,7 +79,7 @@ test.describe("simple-signin example — self-service sign-up → verify email �
     browser,
     request,
   }) => {
-    // RP round-trip + real email delivery + Mailtrap polling + two hosted form legs.
+    // RP round-trip + real email delivery + Mailpit polling + two hosted form legs.
     test.setTimeout(180_000);
 
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -102,18 +102,18 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         "self-service sign-up hands off to the verify-email screen",
       ).toBeVisible();
 
-      // 3) Capture the REAL verification email from Mailtrap (SMTP-delivered by
+      // 3) Capture the REAL verification email from Mailpit (SMTP-delivered by
       //    identity through the tenant's BYO-SMTP). LIVE-CONFIRM (b).
       let verifyLink: string | null = null;
       await expect
         .poll(
           async () => {
-            verifyLink = await findVerificationLink(request, config.mailtrap, email);
+            verifyLink = await findVerificationLink(request, config.mailpit, email);
             return verifyLink;
           },
           {
             // The identity email send is queued/async; allow generous delivery time.
-            message: `verification email to ${email} captured from Mailtrap inbox ${config.mailtrap.inboxId}`,
+            message: `verification email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
             timeout: 90_000,
             intervals: [1000, 2000, 3000, 5000],
           },

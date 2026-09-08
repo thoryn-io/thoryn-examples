@@ -11,12 +11,15 @@
  * so the journey exercises exactly the app a customer would run.
  */
 
-/** Mailtrap Email Testing inbox coordinates — read straight from env (CI secrets). */
-export const mailtrap = {
-  apiBaseUrl: process.env.MAILTRAP_API_BASE_URL ?? "https://mailtrap.io",
-  accountId: process.env.MAILTRAP_ACCOUNT_ID ?? "",
-  inboxId: process.env.MAILTRAP_INBOX_ID ?? "",
-  apiToken: process.env.MAILTRAP_API_TOKEN ?? "",
+/**
+ * Self-hosted Mailpit sink coordinates — read straight from env (CI secrets).
+ * `baseUrl` is the PUBLIC https URL of the Mailpit UI/API the operator runs; the
+ * basic-auth pair is only needed when Mailpit is started with `--ui-auth`.
+ */
+export const mailpit = {
+  baseUrl: process.env.MAILPIT_BASE_URL ?? "",
+  username: process.env.MAILPIT_API_USERNAME ?? "",
+  password: process.env.MAILPIT_API_PASSWORD ?? "",
 } as const;
 
 export const config = {
@@ -50,8 +53,8 @@ export const config = {
    */
   identityBaseUrl: process.env.IDENTITY_BASE_URL ?? "https://identity.stg.thoryn.org",
 
-  /** Mailtrap Email Testing inbox (see `mailtrap` above). */
-  mailtrap,
+  /** Self-hosted Mailpit sink (see `mailpit` above). */
+  mailpit,
 
   /** Credentials for the self-service sign-up. A fresh email per run (see uniqueEmail). */
   password: process.env.SIGNUP_PASSWORD ?? "Example-Signin-Pw1!",

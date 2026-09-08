@@ -74,18 +74,23 @@ header.
 
 `.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912) goes one step further than
 conformance: it drives `simple-signin` through a **real browser** against staging — a
-genuine self-service sign-up whose **verification email is captured from a managed
-[Mailtrap Email Testing](https://mailtrap.io) inbox** (via the tenant's BYO-SMTP,
-SSO-2917) — then signs in through the recipe's loopback RP to a protected page. The
-harness lives in [`e2e/`](e2e/).
+genuine self-service sign-up whose **verification email is captured from a self-hosted
+[Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP, SSO-2917) —
+then signs in through the recipe's loopback RP to a protected page. The harness lives in
+[`e2e/`](e2e/).
+
+The sink is a Mailpit instance a maintainer runs on a **public host** (free): the
+workspace BYO-SMTP is pointed at Mailpit's SMTP endpoint, and the harness reads the
+captured mail over Mailpit's HTTP API.
 
 It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the WIF login step
 until a maintainer creates these repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
-`OATHY_CLI_TOKEN`, `MAILTRAP_API_TOKEN`, `MAILTRAP_ACCOUNT_ID`, `MAILTRAP_INBOX_ID`,
-`MAILTRAP_SMTP_HOST`, `MAILTRAP_SMTP_PORT`, `MAILTRAP_SMTP_USERNAME`,
-`MAILTRAP_SMTP_PASSWORD` — and a first live run confirms the tenant self-service-signup
-entry, the BYO-SMTP→Mailtrap delivery, and the RP OIDC round-trip. See
-[`e2e/README.md`](e2e/README.md) for the full secret table and the live-confirm list.
+`OATHY_CLI_TOKEN`, `MAILPIT_BASE_URL`, `MAILPIT_SMTP_HOST`, `MAILPIT_SMTP_PORT`,
+`MAILPIT_SMTP_USERNAME`, `MAILPIT_SMTP_PASSWORD` (plus optional `MAILPIT_API_USERNAME`,
+`MAILPIT_API_PASSWORD`, `MAILPIT_SMTP_TRANSPORT`) — and a first live run confirms the
+tenant self-service-signup entry, the BYO-SMTP→Mailpit delivery, and the RP OIDC
+round-trip. See [`e2e/README.md`](e2e/README.md) for the full secret table and the
+live-confirm list.
 
 ## Licence
 

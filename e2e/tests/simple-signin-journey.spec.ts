@@ -1,10 +1,11 @@
 /**
  * SSO-2909 — the simple-signin example, driven end-to-end in a real browser against
- * the STAGING SaaS, INCLUDING a genuinely-sent verification email captured from a
- * self-hosted Mailpit sink. This is Path B (real self-service sign-up +
+ * the STAGING SaaS, INCLUDING a genuinely-sent verification email captured from an
+ * EPHEMERAL, in-job Mailpit sink. This is Path B (real self-service sign-up +
  * email capture): a brand-new end user registers on the provisioned workspace, which
- * makes identity SEND a verification email over the tenant's BYO-SMTP (pointed at
- * Mailpit by the workflow). The recipe's own identity.registerUser step pre-verifies
+ * makes identity SEND a verification email over the tenant's BYO-SMTP (pointed at a
+ * public TCP tunnel to the in-job Mailpit by the workflow; the harness reads it back
+ * on localhost). The recipe's own identity.registerUser step pre-verifies
  * WITHOUT an email — that is a convenience for the conformance run, not this path.
  *
  *   1. Open the REAL loopback RP (recipes/simple-signin/apps/loopback-rp/server.js):

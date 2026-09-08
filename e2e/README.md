@@ -8,15 +8,47 @@
 
 A Playwright harness that runs the **Path B** journey: a genuine self-service sign-up
 of a brand-new end user on a freshly-provisioned workspace, capturing the **real
-verification email** from a **self-hosted [Mailpit](https://mailpit.axllent.org/)**
+verification email** from an **ephemeral, in-job [Mailpit](https://mailpit.axllent.org/)**
 sink so the flow can proceed — no DB injection, no stubbing.
 
-> **You must run a public Mailpit.** The sink is a Mailpit instance _you_ operate on a
-> public host (it is free, product-owner decision). It is a BYO-SMTP relay plus a read
-> API: the workspace's BYO-SMTP is pointed at Mailpit's **SMTP** endpoint, and this
-> harness reads the captured mail over Mailpit's **HTTP API**. Give the maintainer
-> secrets below the public UI/API URL (`MAILPIT_BASE_URL`), the SMTP host/port, and —
-> if you start Mailpit with `--ui-auth` / SMTP auth — the credentials.
+## The mail sink is ephemeral and lives in the CI job — no external service, no VM
+
+There is **no Mailpit server to run and no mail account to buy** (product-owner
+decision). The workflow itself:
+
+1. Starts **Mailpit as a Docker container inside the runner** — `:1025` is SMTP, `:8025`
+   is the HTTP API.
+2. Opens a **public TCP tunnel** to Mailpit's SMTP port (`:1025`) for the duration of
+   the run. A GitHub-hosted runner has no public inbound, but the tenant's BYO-SMTP
+   (SSO-2917) must reach the sink over **public SMTP** — the tunnel gives it a public
+   `host:port` that forwards to the in-job Mailpit. `SmtpTargetGuard` allows it because
+   the tunnel host is public; staging egress is open.
+3. Points the workspace BYO-SMTP at that tunnel, so identity delivers the verification
+   email over real SMTP into the container.
+4. Reads the captured mail over Mailpit's **local** API (`http://localhost:8025`, no
+   auth). The tunnel is SMTP-only; the read side never leaves localhost.
+5. Tears everything down when the job ends (the container and tunnel die with the
+   runner).
+
+### Tunnel: ngrok (default) or bore.pub (no account)
+
+The default tunnel is **ngrok**, which needs a free account and one secret,
+`NGROK_AUTHTOKEN`. A **no-account fallback** is **[`bore`](https://github.com/ekzhang/bore)**
+(`bore local 1025 --to bore.pub` → `bore.pub:<port>`, no token). Swapping between them is
+a small, documented change: set the repo **variable** `SINK_TUNNEL=bore` (Settings →
+Secrets and variables → Actions → *Variables*) and the workflow uses `bore.pub` instead
+— `NGROK_AUTHTOKEN` is then unnecessary. Default is `ngrok`.
+
+### Plaintext-over-tunnel caveat
+
+The BYO-SMTP leg uses `--transport-security none --allow-insecure`. An ngrok/bore TCP
+tunnel forwards raw bytes and **cannot present a valid STARTTLS cert for its ephemeral
+hostname**, so the SMTP hop is plaintext. This is acceptable **only** because the sink is
+a throwaway TEST mailbox that receives a single verification email per run and holds
+nothing sensitive — it is never a pattern for a production SMTP provider. Mailpit is
+started with `MP_SMTP_AUTH_ALLOW_INSECURE=true` for the same reason, and its SMTP
+username/password is a per-run value (`openssl rand -hex 16`) fed to the CLI through a
+`0600` tmp file (never on argv — the CLI has no `--smtp-password <value>` flag).
 
 ## The journey (`tests/simple-signin-journey.spec.ts`)
 
@@ -25,8 +57,8 @@ sink so the flow can proceed — no DB injection, no stubbing.
    hub federates to the tenant's identity → its hosted login renders.
 2. Follow the hosted login's self-service **Sign up** path → register a unique email
    → "Check your email".
-3. Poll **Mailpit's API** until the verification email to that address lands; extract
-   the real `/verify-email?token=…` link.
+3. Poll the **local Mailpit API** until the verification email to that address lands;
+   extract the real `/verify-email?token=…` link.
 4. Follow the link → "Your email is verified".
 5. Return to the RP → sign in with the verified creds → callback → RP `/protected`
    renders the ID-token claims (asserts the email is shown).
@@ -52,13 +84,15 @@ npm run test:unit
 # Type-check the harness:
 npm run typecheck
 
-# Against staging (needs a provisioned workspace + a running loopback RP + a public Mailpit):
+# Against staging (needs a provisioned workspace, a running loopback RP, and a local
+# Mailpit the workspace BYO-SMTP can reach — e.g. `docker run -p 1025:1025 -p 8025:8025
+# axllent/mailpit` plus your own tunnel to :1025). MAILPIT_BASE_URL defaults to the
+# local API, so you rarely need to set it:
 RP_BASE_URL=http://127.0.0.1:8471 \
 THORYN_ISSUER=https://<workspace>.hub.stg.thoryn.org \
 THORYN_CLIENT_ID=app-XXXXXXXX \
 IDENTITY_BASE_URL=https://identity.stg.thoryn.org \
-MAILPIT_BASE_URL=https://mail.example.org \
-# MAILPIT_API_USERNAME=<user> MAILPIT_API_PASSWORD=<pass>   # only for a --ui-auth Mailpit
+MAILPIT_BASE_URL=http://localhost:8025 \
 npm run install-browser && npm test
 ```
 
@@ -67,25 +101,19 @@ The full CI orchestration lives in
 
 ## Secrets a maintainer must create to activate
 
-The workflow references these repo secrets. Until they exist it is
-`workflow_dispatch`-only and fails at the login step. Create them under
+The workflow references **three** repo secrets — that is the whole set. Until they exist
+it is `workflow_dispatch`-only and fails at the login step. Create them under
 **Settings → Secrets and variables → Actions**:
 
 | Secret | Required | What it is |
 |---|---|---|
 | `THORYN_CI_WIF_SIGNING_KEY` | yes | EC P-256 (ES256) **private** key (PKCS#8 PEM) for the `conformance-ci-github-wif` exchange client. Public half is registered on the hub (oathy migration; subject pinned to `repo:thoryn-io/thoryn-examples:*`). Same secret the `conformance.yml` workflow uses. |
 | `OATHY_CLI_TOKEN` | yes | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
-| `MAILPIT_BASE_URL` | yes | Public **https** URL of your Mailpit UI/API, e.g. `https://mail.example.org`. The harness reads captured mail here. |
-| `MAILPIT_API_USERNAME` | no | Basic-auth username for the Mailpit API — only if you run Mailpit with `--ui-auth`. |
-| `MAILPIT_API_PASSWORD` | no | Basic-auth password for the Mailpit API — only if you run Mailpit with `--ui-auth`. |
-| `MAILPIT_SMTP_HOST` | yes | Your Mailpit **SMTP** host, e.g. `mail.example.org`. |
-| `MAILPIT_SMTP_PORT` | yes | Your Mailpit SMTP port, e.g. `587` (STARTTLS) or `465` (SSL). |
-| `MAILPIT_SMTP_USERNAME` | yes | SMTP username (Mailpit `--smtp-auth`). |
-| `MAILPIT_SMTP_PASSWORD` | yes | SMTP password (Mailpit `--smtp-auth`). Fed to the CLI via a tmp file, never on argv. |
-| `MAILPIT_SMTP_TRANSPORT` | no | `starttls` (default) \| `ssl` \| `none`. Use `none` only for a plaintext Mailpit — the workflow then adds `--allow-insecure`. |
+| `NGROK_AUTHTOKEN` | yes¹ | Authtoken for a **free** [ngrok](https://ngrok.com) account — used to open the public TCP tunnel to the in-job Mailpit SMTP port. |
 
-Your Mailpit SMTP host is **public**, so the tenant BYO-SMTP guard (`SmtpTargetGuard`)
-allows it with no allow-list entry.
+¹ Not needed if you set the repo **variable** `SINK_TUNNEL=bore` (the account-less
+`bore.pub` fallback). No Mailpit / SMTP secrets are needed at all — the sink is created
+inside the job, and its SMTP password is generated per run.
 
 ## What only a first live run can confirm
 
@@ -94,7 +122,8 @@ allows it with no allow-list entry.
 - **The tenant self-service-signup entry** — that the workspace's cloned identity
   member exposes a self-service "Sign up" link from its hosted login, and its exact
   accessible name / form selectors (`gotoRegisterFromLogin`).
-- **BYO-SMTP → Mailpit delivery** — that `thoryn workspace email-provider set`
-  actually routes the verification email to the Mailpit sink.
+- **BYO-SMTP → tunnel → Mailpit delivery** — that `thoryn workspace email-provider set`
+  actually routes the verification email through the tunnel to the in-job Mailpit sink
+  (and that a plaintext relay to the tunnel is accepted).
 - **The RP OIDC round-trip** — that the freshly-verified account authenticates through
   the workspace hub federation and lands on the RP's `/protected` page.

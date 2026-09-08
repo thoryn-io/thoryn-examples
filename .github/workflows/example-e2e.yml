@@ -2,19 +2,35 @@ name: example-e2e
 
 # SSO-2909 (harness) + SSO-2912 (workflow), epic SSO-2906 — drive the `simple-signin`
 # example end-to-end against the STAGING SaaS in a real browser, capturing the REAL
-# verification email from a SELF-HOSTED Mailpit sink so a genuine self-service
-# sign-up can proceed (Path B). NO k3d, NO self-deployed stack: the CLI talks to
-# staging exactly as a customer would. The mail sink is a Mailpit instance the
-# operator runs on a public host (free; product-owner decision) — a BYO-SMTP relay
-# plus a read API, self-hosted so the sink costs nothing.
+# verification email from an EPHEMERAL, in-job Mailpit sink so a genuine self-service
+# sign-up can proceed (Path B). NO k3d, NO self-deployed stack, NO external mail
+# service, NO persistent VM: the CLI talks to staging exactly as a customer would, and
+# the mail sink lives and dies with this GitHub Actions job.
+#
+# How the sink works (product-owner decision — fully ephemeral, zero standing cost):
+#   • Mailpit runs as a Docker container INSIDE the runner: :1025 = SMTP, :8025 = HTTP API.
+#   • A GitHub-hosted runner has NO public inbound, but the tenant's BYO-SMTP (SSO-2917)
+#     must reach the sink over PUBLIC SMTP. So we open a public TCP TUNNEL to :1025 for
+#     the duration of the run (ngrok by default; `bore.pub` is a no-account fallback —
+#     flip SINK_TUNNEL). The tunnel yields a public host:port → the workspace BYO-SMTP.
+#     SmtpTargetGuard allows it because the tunnel host is public; staging egress is open.
+#   • The harness reads the captured mail over Mailpit's LOCAL API (localhost:8025, no
+#     auth) — the tunnel is SMTP-only and never exposes the API.
+#   • Everything is torn down when the job ends (container + tunnel die with the runner).
+#
+# Plaintext-over-tunnel caveat: the ngrok/bore TCP tunnel forwards raw bytes and cannot
+# present a valid STARTTLS cert for its ephemeral hostname, so the BYO-SMTP leg uses
+# `--transport-security none --allow-insecure`. This is acceptable ONLY because the sink
+# is a throwaway TEST mailbox that receives a single verification email per run and holds
+# nothing sensitive — never a pattern for a production SMTP provider.
 #
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │  SCAFFOLD — NOT YET ACTIVATED. Until the maintainer creates the secrets below │
-# │  (see e2e/README.md) this workflow is workflow_dispatch-only and FAILS at the │
-# │  WIF login step. A FIRST live run must also confirm the seams the harness     │
-# │  marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→Mailpit        │
-# │  delivery, the RP OIDC round-trip). Do NOT treat a green local scaffold as a   │
-# │  green pipeline.                                                               │
+# │  SCAFFOLD — NOT YET ACTIVATED. Until the maintainer creates the three secrets │
+# │  below (see e2e/README.md) this workflow is workflow_dispatch-only and FAILS  │
+# │  at the WIF login step. A FIRST live run must also confirm the seams the      │
+# │  harness marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→sink   │
+# │  delivery over the tunnel, the RP OIDC round-trip). Do NOT treat a green local │
+# │  scaffold as a green pipeline.                                                 │
 # └─────────────────────────────────────────────────────────────────────────────┘
 #
 # Auth = WIF (SSO-2910, same as conformance.yml): GitHub Actions OIDC → the hub's
@@ -23,9 +39,10 @@ name: example-e2e
 #
 # The journey (orchestrated below):
 #   WIF login → `examples apply simple-signin` (fresh workspace + public app + user)
-#   → point the workspace BYO-SMTP at the self-hosted Mailpit SMTP (SSO-2917) → start
-#   the recipe's loopback RP → Playwright Path-B journey (self-service sign-up →
-#   capture email from Mailpit → verify → sign in via RP → /protected) → `examples teardown`.
+#   → start in-job Mailpit + open a public SMTP tunnel to it → point the workspace
+#   BYO-SMTP (SSO-2917) at the tunnel → start the recipe's loopback RP → Playwright
+#   Path-B journey (self-service sign-up → capture email from LOCAL Mailpit API →
+#   verify → sign in via RP → /protected) → teardown (sink + tunnel + `examples teardown`).
 
 on:
   workflow_dispatch:
@@ -57,8 +74,12 @@ env:
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
   # The tenant BYO-SMTP "from" address. Mailpit captures every message regardless of
-  # sender; a reserved .example domain keeps it unmistakably non-routable.
-  SMTP_FROM_ADDRESS: noreply@simple-signin.thoryn.example
+  # sender; a reserved .test domain keeps it unmistakably non-routable.
+  SMTP_FROM_ADDRESS: noreply@example.test
+  # Which public TCP tunnel to open to the in-job Mailpit SMTP port. Default `ngrok`
+  # (needs the NGROK_AUTHTOKEN secret + a free ngrok account); set the repo variable
+  # SINK_TUNNEL=bore for the no-account `bore.pub` fallback (see e2e/README.md).
+  SINK_TUNNEL: ${{ vars.SINK_TUNNEL || 'ngrok' }}
 
 jobs:
   example-e2e:
@@ -131,51 +152,113 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client)"
 
-      # ── Point the workspace BYO-SMTP at self-hosted Mailpit (SSO-2917 / SSO-2918) ──
-      - name: Configure the workspace email provider → self-hosted Mailpit SMTP
+      # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──
+      - name: Start in-job Mailpit + open a public TCP tunnel to its SMTP port
+        id: sink
         env:
-          # BLOCKED(SSO-2912): secrets MAILPIT_SMTP_HOST / MAILPIT_SMTP_PORT /
-          # MAILPIT_SMTP_USERNAME / MAILPIT_SMTP_PASSWORD must be created (the public
-          # Mailpit instance's SMTP endpoint). Host is PUBLIC → SmtpTargetGuard allows
-          # it with no allow-list entry. MAILPIT_SMTP_TRANSPORT is optional
-          # (starttls|ssl|none, default starttls).
-          MAILPIT_SMTP_HOST: ${{ secrets.MAILPIT_SMTP_HOST }}
-          MAILPIT_SMTP_PORT: ${{ secrets.MAILPIT_SMTP_PORT }}
-          MAILPIT_SMTP_USERNAME: ${{ secrets.MAILPIT_SMTP_USERNAME }}
-          MAILPIT_SMTP_PASSWORD: ${{ secrets.MAILPIT_SMTP_PASSWORD }}
-          MAILPIT_SMTP_TRANSPORT: ${{ secrets.MAILPIT_SMTP_TRANSPORT }}
+          # BLOCKED(SSO-2912): secret NGROK_AUTHTOKEN must be created (free ngrok
+          # account) — the ONLY new secret this workflow adds. Not needed when
+          # SINK_TUNNEL=bore (bore.pub is account-less).
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
           set -euo pipefail
-          for v in MAILPIT_SMTP_HOST MAILPIT_SMTP_PORT MAILPIT_SMTP_USERNAME MAILPIT_SMTP_PASSWORD; do
-            [ -n "${!v:-}" ] || { echo "::error::$v is not set"; exit 1; }
+
+          # Per-run SMTP password: generated here, never committed, dies with the runner.
+          SMTP_PW="$(openssl rand -hex 16)"
+          echo "::add-mask::$SMTP_PW"
+          echo "SMTP_PW=$SMTP_PW" >> "$GITHUB_ENV"
+
+          # 1) Mailpit in Docker — :1025 SMTP (tunnelled to the public internet),
+          #    :8025 HTTP API (read LOCALLY by the harness). MP_SMTP_AUTH_ALLOW_INSECURE
+          #    because the tunnel carries plaintext SMTP (no STARTTLS cert for its host).
+          docker run -d --name mailpit -p 1025:1025 -p 8025:8025 \
+            -e MP_SMTP_AUTH="ci:$SMTP_PW" \
+            -e MP_SMTP_AUTH_ALLOW_INSECURE=true \
+            axllent/mailpit:latest
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8025/api/v1/info >/dev/null 2>&1 && { echo "Mailpit API is up"; break; }
+            sleep 1
           done
-          # Default to starttls: assume the operator runs Mailpit SMTP behind TLS so we
-          # never need --allow-insecure. An operator who runs it in PLAINTEXT sets
-          # MAILPIT_SMTP_TRANSPORT=none, and only then do we add --allow-insecure.
-          transport="${MAILPIT_SMTP_TRANSPORT:-starttls}"
+
+          # 2) Public TCP tunnel → Mailpit SMTP (:1025). Default ngrok; bore = no-account
+          #    fallback. Swapping between them is this small, documented SINK_TUNNEL toggle.
+          public_url=""
+          case "$SINK_TUNNEL" in
+            ngrok)
+              [ -n "${NGROK_AUTHTOKEN:-}" ] || { echo "::error::NGROK_AUTHTOKEN is not set (or set repo variable SINK_TUNNEL=bore)"; exit 1; }
+              curl -sSLo /tmp/ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+              sudo tar -xzf /tmp/ngrok.tgz -C /usr/local/bin
+              ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+              ngrok tcp 1025 --log=stdout > /tmp/ngrok.log 2>&1 &
+              echo "NGROK_PID=$!" >> "$GITHUB_ENV"
+              # ngrok exposes a local admin API at :4040 whose /api/tunnels carries the
+              # public tcp://host:port. Poll it until the tunnel is established.
+              for _ in $(seq 1 30); do
+                public_url="$(curl -fsS http://localhost:4040/api/tunnels 2>/dev/null | grep -oE 'tcp://[0-9a-zA-Z.-]+:[0-9]+' | head -1 || true)"
+                [ -n "$public_url" ] && break
+                sleep 1
+              done
+              [ -n "$public_url" ] || { echo "::error::ngrok tunnel did not come up"; echo '--- ngrok.log ---'; cat /tmp/ngrok.log || true; exit 1; }
+              ;;
+            bore)
+              # No-account fallback: bore.pub assigns a random public port that forwards
+              # to our local :1025. No token, no config. (github.com/ekzhang/bore)
+              curl -sSLo /tmp/bore.tgz https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz
+              sudo tar -xzf /tmp/bore.tgz -C /usr/local/bin
+              bore local 1025 --to bore.pub > /tmp/bore.log 2>&1 &
+              echo "BORE_PID=$!" >> "$GITHUB_ENV"
+              port=""
+              for _ in $(seq 1 30); do
+                port="$(grep -oE 'remote_port[=: ]+[0-9]+|bore\.pub:[0-9]+' /tmp/bore.log 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)"
+                [ -n "$port" ] && break
+                sleep 1
+              done
+              [ -n "$port" ] || { echo "::error::bore tunnel did not come up"; echo '--- bore.log ---'; cat /tmp/bore.log || true; exit 1; }
+              public_url="tcp://bore.pub:${port}"
+              ;;
+            *)
+              echo "::error::unknown SINK_TUNNEL '$SINK_TUNNEL' (expected ngrok|bore)"; exit 1
+              ;;
+          esac
+
+          host="$(printf '%s' "$public_url" | sed -E 's#^tcp://([^:]+):([0-9]+)$#\1#')"
+          port="$(printf '%s' "$public_url" | sed -E 's#^tcp://([^:]+):([0-9]+)$#\2#')"
+          [ -n "$host" ] && [ -n "$port" ] || { echo "::error::could not parse tunnel host:port from '$public_url'"; exit 1; }
+          {
+            echo "smtp_host=$host"
+            echo "smtp_port=$port"
+          } >> "$GITHUB_OUTPUT"
+          echo "Public SMTP sink: ${host}:${port} → in-job Mailpit :1025 (API on localhost:8025)"
+
+      # ── Point the workspace BYO-SMTP at the tunnelled Mailpit (SSO-2917) ─────
+      - name: Configure the workspace email provider → the tunnelled Mailpit SMTP
+        env:
+          SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
+          SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
+        run: |
+          set -euo pipefail
+          [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
           # The CLI has NO `--smtp-password <value>` flag (secret-in-argv is banned);
-          # feed the password through a 0600 tmp file so it never hits the process table.
+          # feed the per-run password through a 0600 tmp file so it never hits the
+          # process table.
           pwfile="$(mktemp)"; chmod 600 "$pwfile"
           trap 'rm -f "$pwfile"' EXIT
-          printf '%s' "$MAILPIT_SMTP_PASSWORD" > "$pwfile"
-          # LIVE-CONFIRM: the exact flag names + how the target workspace is selected
-          # (here: --workspace <slug>) must be confirmed against the released CLI.
-          args=(
-            workspace email-provider set
-            --workspace "${{ steps.apply.outputs.slug }}"
-            --smtp-host "$MAILPIT_SMTP_HOST"
-            --smtp-port "$MAILPIT_SMTP_PORT"
-            --smtp-username "$MAILPIT_SMTP_USERNAME"
-            --smtp-password-file "$pwfile"
-            --transport-security "$transport"
-            --from-address "$SMTP_FROM_ADDRESS"
+          printf '%s' "$SMTP_PW" > "$pwfile"
+          # transport-security = none + --allow-insecure: the ngrok/bore TCP tunnel
+          # cannot present a valid STARTTLS cert for its ephemeral hostname, so the
+          # BYO-SMTP leg is plaintext. Acceptable for a throwaway TEST sink only.
+          # LIVE-CONFIRM: the exact flag names + workspace selector (here: --workspace
+          # <slug>) must be confirmed against the released CLI.
+          java -jar thoryn.jar workspace email-provider set \
+            --workspace "${{ steps.apply.outputs.slug }}" \
+            --smtp-host "$SINK_SMTP_HOST" \
+            --smtp-port "$SINK_SMTP_PORT" \
+            --smtp-username ci \
+            --smtp-password-file "$pwfile" \
+            --transport-security none \
+            --allow-insecure \
+            --from-address "$SMTP_FROM_ADDRESS" \
             --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY"
-          )
-          # Plaintext SMTP (no TLS) needs the explicit guard override.
-          if [ "$transport" = "none" ]; then
-            args+=(--allow-insecure)
-          fi
-          java -jar thoryn.jar "${args[@]}"
           # Optional pre-flight (SSO-2923): confirm the SMTP target before relying on it.
           java -jar thoryn.jar workspace email-provider verify \
             --workspace "${{ steps.apply.outputs.slug }}" \
@@ -203,17 +286,13 @@ jobs:
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
-          # BLOCKED(SSO-2912): secret MAILPIT_BASE_URL must be created (the public
-          # https URL of the operator's Mailpit UI/API). MAILPIT_API_USERNAME /
-          # MAILPIT_API_PASSWORD are optional — only needed for a `--ui-auth` Mailpit.
-          MAILPIT_BASE_URL: ${{ secrets.MAILPIT_BASE_URL }}
-          MAILPIT_API_USERNAME: ${{ secrets.MAILPIT_API_USERNAME }}
-          MAILPIT_API_PASSWORD: ${{ secrets.MAILPIT_API_PASSWORD }}
+          # The harness reads the captured mail from the in-job Mailpit's LOCAL API —
+          # no tunnel, no auth. (config.ts already defaults to this; set explicitly.)
+          MAILPIT_BASE_URL: http://localhost:8025
           CI: "true"
         working-directory: e2e
         run: |
           set -euo pipefail
-          [ -n "${MAILPIT_BASE_URL:-}" ] || { echo "::error::MAILPIT_BASE_URL is not set"; exit 1; }
           npm ci
           npx playwright install --with-deps chromium
           npm test
@@ -229,10 +308,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # ── Teardown — always, even on failure (hard-deletes the workspace) ──────
-      - name: Teardown the example (delete app + hard-delete workspace)
+      # ── Teardown — always, even on failure ───────────────────────────────────
+      # The container + tunnel would die with the runner regardless; killing them
+      # explicitly is tidy. `examples teardown` hard-deletes the workspace.
+      - name: Teardown the sink, tunnel, RP, and example
         if: always()
         run: |
           [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
+          [ -n "${NGROK_PID:-}" ] && kill "$NGROK_PID" 2>/dev/null || true
+          [ -n "${BORE_PID:-}" ] && kill "$BORE_PID" 2>/dev/null || true
+          docker rm -f mailpit 2>/dev/null || true
           java -jar thoryn.jar examples teardown simple-signin \
             --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || true

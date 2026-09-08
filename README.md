@@ -74,21 +74,23 @@ header.
 
 `.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912) goes one step further than
 conformance: it drives `simple-signin` through a **real browser** against staging — a
-genuine self-service sign-up whose **verification email is captured from a self-hosted
-[Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP, SSO-2917) —
-then signs in through the recipe's loopback RP to a protected page. The harness lives in
-[`e2e/`](e2e/).
+genuine self-service sign-up whose **verification email is captured from an ephemeral,
+in-job [Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP,
+SSO-2917) — then signs in through the recipe's loopback RP to a protected page. The
+harness lives in [`e2e/`](e2e/).
 
-The sink is a Mailpit instance a maintainer runs on a **public host** (free): the
-workspace BYO-SMTP is pointed at Mailpit's SMTP endpoint, and the harness reads the
-captured mail over Mailpit's HTTP API.
+The sink is **fully ephemeral — no external service, no VM**: the workflow runs Mailpit
+as a Docker container inside the runner and opens a **public TCP tunnel** (ngrok by
+default; `bore.pub` no-account fallback) to its SMTP port so staging's identity can
+deliver the email; the harness reads it back over Mailpit's **local** API. Everything is
+torn down with the job. The SMTP hop over the tunnel is plaintext (the tunnel can't
+present a STARTTLS cert for its ephemeral host) — fine for a throwaway TEST mailbox.
 
 It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the WIF login step
-until a maintainer creates these repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
-`OATHY_CLI_TOKEN`, `MAILPIT_BASE_URL`, `MAILPIT_SMTP_HOST`, `MAILPIT_SMTP_PORT`,
-`MAILPIT_SMTP_USERNAME`, `MAILPIT_SMTP_PASSWORD` (plus optional `MAILPIT_API_USERNAME`,
-`MAILPIT_API_PASSWORD`, `MAILPIT_SMTP_TRANSPORT`) — and a first live run confirms the
-tenant self-service-signup entry, the BYO-SMTP→Mailpit delivery, and the RP OIDC
+until a maintainer creates **three** repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
+`OATHY_CLI_TOKEN`, and `NGROK_AUTHTOKEN` (free ngrok account; unneeded if you set the
+repo variable `SINK_TUNNEL=bore`) — and a first live run confirms the tenant
+self-service-signup entry, the BYO-SMTP→tunnel→Mailpit delivery, and the RP OIDC
 round-trip. See [`e2e/README.md`](e2e/README.md) for the full secret table and the
 live-confirm list.
 

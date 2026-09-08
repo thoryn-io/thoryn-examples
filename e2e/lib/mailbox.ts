@@ -1,26 +1,26 @@
 /**
  * SSO-2909 / SSO-2913 — Mailpit HTTP-API helpers for the example e2e mail sink.
  *
- * The example journey configures the provisioned workspace's BYO-SMTP (SSO-2917)
- * to point at a SELF-HOSTED Mailpit instance running on a public host, so
- * identity-service delivers the verification email over real SMTP to that sink.
- * These helpers read it back over Mailpit's REST API and extract the
- * `/verify-email?token=…` link — the email is GENUINELY delivered and captured,
- * never injected or read from a DB. Mailpit is free and self-hosted (product-owner
- * decision).
+ * The example journey runs an EPHEMERAL Mailpit container INSIDE the CI job and
+ * points the provisioned workspace's BYO-SMTP (SSO-2917) at a public TCP tunnel
+ * to Mailpit's SMTP port, so identity-service delivers the verification email over
+ * real SMTP to that in-job sink. These helpers read it back over Mailpit's LOCAL
+ * REST API (`http://localhost:8025`, no auth — the tunnel is SMTP-only) and extract
+ * the `/verify-email?token=…` link. The email is GENUINELY delivered and captured,
+ * never injected or read from a DB. The sink is created and torn down with the job
+ * — no external service, no persistent host (product-owner decision).
  *
  * This mirrors oathy's proven capture (e2e/scenario/lib/mailpit.ts, SSO-2816):
  *
  *   Find:  GET {base}/api/v1/search?query=to:"<addr>"   (primary, ordering/size-independent)
  *          GET {base}/api/v1/messages?limit=200          (fallback, newest-first list)
  *   Body:  GET {base}/api/v1/message/{id}                (HTML preferred, Text fallback)
- *   Auth:  optional HTTP Basic (Mailpit `--ui-auth`), MAILPIT_API_USERNAME/PASSWORD
  *
  * Using the SEARCH API as the primary path is the SSO-2913 hardening: it filters
- * server-side and is independent of how many messages the sink has accumulated
- * across runs, avoiding the "newest email missed once the sink is full" flake that
- * the plain list scan suffers. It falls back to the list endpoint for an older
- * Mailpit build (or when search is disabled).
+ * server-side and is independent of how many messages the sink has accumulated,
+ * avoiding the "newest email missed once the sink is full" flake that the plain
+ * list scan suffers. It falls back to the list endpoint for an older Mailpit build
+ * (or when search is disabled).
  *
  * The functions are pure fetches (no sleeping); the spec drives the wait with
  * Playwright's `expect.poll`, so it exits the instant the email lands.
@@ -33,14 +33,10 @@ import { extractVerificationLink } from "./verification-link.mjs";
 
 export { extractVerificationLink };
 
-/** Everything the Mailpit API needs: a public base URL + optional basic-auth. */
+/** Everything the Mailpit API needs: the local base URL (no auth). */
 export interface MailpitConfig {
-  /** Public https base URL of the Mailpit UI/API, e.g. `https://mail.example.org`. */
+  /** Base URL of the in-job Mailpit HTTP API, e.g. `http://localhost:8025`. */
   baseUrl: string;
-  /** Basic-auth username for a Mailpit `--ui-auth` deployment (optional). */
-  username?: string;
-  /** Basic-auth password for a Mailpit `--ui-auth` deployment (optional). */
-  password?: string;
 }
 
 /** Minimal shape of a Mailpit message summary (`GET /api/v1/messages` / `/search`). */
@@ -63,15 +59,6 @@ const norm = (addr: string): string => addr.trim().toLowerCase();
 
 function baseOf(cfg: MailpitConfig): string {
   return cfg.baseUrl.replace(/\/+$/, "");
-}
-
-/** Optional Basic auth header for a Mailpit `--ui-auth` deployment. */
-function authHeaders(cfg: MailpitConfig): Record<string, string> {
-  if (cfg.username && cfg.password) {
-    const token = Buffer.from(`${cfg.username}:${cfg.password}`).toString("base64");
-    return { Authorization: `Basic ${token}` };
-  }
-  return {};
 }
 
 /**
@@ -107,12 +94,10 @@ export async function findLatestMessageIdTo(
   cfg: MailpitConfig,
   recipient: string,
 ): Promise<string | null> {
-  const headers = authHeaders(cfg);
   // Mailpit search grammar: `to:"addr"` scopes the query to the To header.
   const query = encodeURIComponent(`to:"${recipient}"`);
   const searchRes = await request
     .get(`${baseOf(cfg)}/api/v1/search?query=${query}&limit=50`, {
-      headers,
       ignoreHTTPSErrors: true,
     })
     .catch(() => null);
@@ -123,7 +108,7 @@ export async function findLatestMessageIdTo(
 
   // Fallback: full-list scan (older Mailpit / search disabled). Newest-first, size-bounded.
   const listRes = await request
-    .get(`${baseOf(cfg)}/api/v1/messages?limit=200`, { headers, ignoreHTTPSErrors: true })
+    .get(`${baseOf(cfg)}/api/v1/messages?limit=200`, { ignoreHTTPSErrors: true })
     .catch(() => null);
   if (!listRes || listRes.status() !== 200) return null;
   const body = (await listRes.json().catch(() => ({}))) as { messages?: MailpitSummary[] };
@@ -137,7 +122,6 @@ export async function getMessageBody(
   id: string,
 ): Promise<string> {
   const res = await request.get(`${baseOf(cfg)}/api/v1/message/${id}`, {
-    headers: authHeaders(cfg),
     ignoreHTTPSErrors: true,
   });
   if (res.status() !== 200) return "";

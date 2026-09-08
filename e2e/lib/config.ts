@@ -12,14 +12,15 @@
  */
 
 /**
- * Self-hosted Mailpit sink coordinates — read straight from env (CI secrets).
- * `baseUrl` is the PUBLIC https URL of the Mailpit UI/API the operator runs; the
- * basic-auth pair is only needed when Mailpit is started with `--ui-auth`.
+ * Ephemeral in-job Mailpit sink coordinates. The workflow starts Mailpit as a
+ * Docker container INSIDE the CI job and the harness reads it over Mailpit's
+ * LOCAL HTTP API — no auth, no tunnel (the tunnel is SMTP-only, so identity can
+ * deliver the email; the read side stays on localhost). `baseUrl` therefore
+ * defaults to `http://localhost:8025` and is overridable only for a local run
+ * against a hand-started Mailpit.
  */
 export const mailpit = {
-  baseUrl: process.env.MAILPIT_BASE_URL ?? "",
-  username: process.env.MAILPIT_API_USERNAME ?? "",
-  password: process.env.MAILPIT_API_PASSWORD ?? "",
+  baseUrl: process.env.MAILPIT_BASE_URL ?? "http://localhost:8025",
 } as const;
 
 export const config = {
@@ -53,7 +54,7 @@ export const config = {
    */
   identityBaseUrl: process.env.IDENTITY_BASE_URL ?? "https://identity.stg.thoryn.org",
 
-  /** Self-hosted Mailpit sink (see `mailpit` above). */
+  /** Ephemeral in-job Mailpit sink (see `mailpit` above). */
   mailpit,
 
   /** Credentials for the self-service sign-up. A fresh email per run (see uniqueEmail). */

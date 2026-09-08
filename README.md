@@ -63,36 +63,117 @@ Today, run the bundled example with `thoryn examples setup simple-signin` → `r
 
 ## Conformance
 
-Every recipe is exercised end-to-end against staging by `.github/workflows/conformance.yml`
-(nightly + on demand): it builds the `thoryn` CLI, signs in as a client-credentials service
-account, and runs each recipe **apply → verify → teardown**. A recipe that has drifted from the
-product fails here — a red recipe blocks a release. Provision the workflow's secrets
-(`THORYN_CI_CLIENT_ID`, `THORYN_CI_CLIENT_SECRET`, `OATHY_CLI_TOKEN`) once; see the workflow
-header.
+`.github/workflows/conformance.yml` (nightly + on demand) exercises a recipe **apply → verify →
+teardown** against staging with the real `thoryn` CLI, so a product change that breaks the recipe's
+product-API contract fails here — a red recipe blocks a release.
+
+**Auth (SSO-2942 — moved off Workload Identity Federation).** CI authenticates with a
+**customer-plane `client_credentials` API key** the operator mints themselves — the model proven in
+`thoryn-cli`'s provisioning Action. No GitHub OIDC, no `id-token` permission, no private signing key.
+The key is **tenant-scoped** (bound to one **standing workspace** via its `tnt` claim) and signs in at
+that workspace's per-tenant issuer (`https://<slug>.hub.stg.thoryn.org`).
+
+> **Coverage note.** A tenant-scoped API key **cannot create workspaces** (workspace-create needs a
+> machine scope a tenant admin can't delegate — the **SSO-2943** gap). So conformance no longer runs
+> the repo's `simple-signin` recipe (its first step is `hub.createWorkspace`). It runs the
+> **workspace-less `ci-signin` recipe** (bundled in the CLI) **inside the standing workspace**:
+> `applications.create → applications.get (verify) → applications.delete`. The workspace-lifecycle,
+> `identity.registerUser`, and email-provider steps of `simple-signin` are **not** conformance-covered
+> under the API-key model.
+
+Provision the workflow's config once (see **CI provisioning setup** below): the secrets
+`THORYN_API_KEY`, `OATHY_CLI_TOKEN` and the repo variable `CI_WORKSPACE_SLUG`.
 
 ### Browser e2e (`example-e2e.yml`) — _scaffold, not yet activated_
 
-`.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912) goes one step further than
-conformance: it drives `simple-signin` through a **real browser** against staging — a
-genuine self-service sign-up whose **verification email is captured from an ephemeral,
-in-job [Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP,
-SSO-2917) — then signs in through the recipe's loopback RP to a protected page. The
-harness lives in [`e2e/`](e2e/).
+`.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912; auth cutover SSO-2942) goes one step
+further than conformance: it drives the `simple-signin` **browser journey** against staging — a
+genuine self-service sign-up whose **verification email is captured from an ephemeral, in-job
+[Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP, SSO-2917) — then signs in
+through the recipe's loopback RP to a protected page. The harness lives in [`e2e/`](e2e/).
 
-The sink is **fully ephemeral — no external service, no VM**: the workflow runs Mailpit
-as a Docker container inside the runner and opens a **public TCP tunnel** (ngrok by
-default; `bore.pub` no-account fallback) to its SMTP port so staging's identity can
-deliver the email; the harness reads it back over Mailpit's **local** API. Everything is
-torn down with the job. The SMTP hop over the tunnel is plaintext (the tunnel can't
-present a STARTTLS cert for its ephemeral host) — fine for a throwaway TEST mailbox.
+Under the API-key model it provisions an **ephemeral OAuth app inside the standing workspace** (via
+`ci-signin`) rather than a fresh workspace per run, and points that **standing workspace's BYO-SMTP at
+the per-run tunnel** each run (the tunnel is ephemeral). The brand-new self-service user is created in
+the standing workspace. _Cleanup caveat:_ the API key can't hard-delete the workspace the way the old
+WIF flow did, so each run leaves one test user behind in the standing workspace (there is no
+user-delete recipe action — the `ci-signin` limitation); prune periodically until a delete capability
+lands.
 
-It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the WIF login step
-until a maintainer creates **three** repo secrets — `THORYN_CI_WIF_SIGNING_KEY`,
-`OATHY_CLI_TOKEN`, and `NGROK_AUTHTOKEN` (free ngrok account; unneeded if you set the
-repo variable `SINK_TUNNEL=bore`) — and a first live run confirms the tenant
-self-service-signup entry, the BYO-SMTP→tunnel→Mailpit delivery, and the RP OIDC
-round-trip. See [`e2e/README.md`](e2e/README.md) for the full secret table and the
-live-confirm list.
+The sink is **fully ephemeral — no external service, no VM**: the workflow runs Mailpit as a Docker
+container inside the runner and opens a **public TCP tunnel** (ngrok by default; `bore.pub` no-account
+fallback) to its SMTP port so staging's identity can deliver the email; the harness reads it back over
+Mailpit's **local** API. Everything is torn down with the job. The SMTP hop over the tunnel is
+plaintext (the tunnel can't present a STARTTLS cert for its ephemeral host) — fine for a throwaway
+TEST mailbox.
+
+It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the sign-in step until the
+operator completes **CI provisioning setup** (below) and a first live run confirms the tenant
+self-service-signup entry, the BYO-SMTP→tunnel→Mailpit delivery, and the RP OIDC round-trip. See
+[`e2e/README.md`](e2e/README.md) for the full secret table and the live-confirm list.
+
+## CI provisioning setup _(operator-run, one-time)_
+
+Both CI suites authenticate as a real customer with a tenant-scoped `client_credentials` API key
+against a **standing workspace on staging that the operator owns** (the model proven in `thoryn-cli`).
+This is **operator-run** setup — it mutates a real staging tenant and mints a real credential. Run it
+once as a tenant admin (commands target staging; adjust the issuer for another environment):
+
+```bash
+# 0) Sign in interactively as a tenant admin (authorization-code + PKCE, opens a browser).
+thoryn login --issuer https://hub.stg.thoryn.org
+
+# 1) Create the STANDING workspace the CI runs provision into (skip if it exists).
+thoryn workspace create --slug ci-conformance --display-name "CI conformance"
+
+# 2) Enter it, so the API key is registered UNDER that tenant (its `tnt`).
+thoryn workspace switch ci-conformance
+
+# 3) Mint the CUSTOMER-PLANE client_credentials API key, scoped to the UNION both suites need:
+#    conformance → tenant:applications.write + tenant:applications.read;
+#    example-e2e → the same + tenant:email.write (to point the workspace BYO-SMTP at the sink).
+#    The secret is written to a FILE (never printed to a log/pipe). --scope is REPEATABLE.
+#    NOTE (SSO-2943 friction): `clients create` REQUIRES --redirect-uri even for a machine
+#    (client_credentials) client that never redirects — pass a throwaway.
+thoryn clients create \
+  --display-name "CI provisioning key (ci-conformance)" \
+  --client-type confidential \
+  --grant-type client_credentials \
+  --scope tenant:applications.write \
+  --scope tenant:applications.read \
+  --scope tenant:email.write \
+  --redirect-uri https://ci.invalid/unused \
+  --secret-file ci-api-key.secret
+# → prints the client-id; the secret is in ci-api-key.secret.
+```
+
+Then set the repo Actions config (Settings → Secrets and variables → Actions):
+
+| Kind | Name | Value |
+|------|------|-------|
+| secret | `THORYN_API_KEY` | `<client-id>:<contents of ci-api-key.secret>` from step 3 |
+| secret | `OATHY_CLI_TOKEN` | a PAT / GitHub App token that can read `thoryn-io/oauthy` **releases** |
+| secret | `NGROK_AUTHTOKEN` | free [ngrok](https://ngrok.com) authtoken (**example-e2e only**; skip if `SINK_TUNNEL=bore`) |
+| variable | `CI_WORKSPACE_SLUG` | the standing workspace slug (e.g. `ci-conformance`) |
+| variable | `SINK_TUNNEL` | `bore` to use the account-less tunnel instead of ngrok (optional) |
+
+Delete `ci-api-key.secret` after setting the repo secret. Rotate the key with
+`thoryn clients rotate-secret <client-id> --secret-file <path>` (old secret stays valid 24h) and
+update `THORYN_API_KEY`.
+
+**SSO-2943 gaps to validate on the first live run** (this story is thoryn-examples-only and does NOT
+touch oauthy):
+
+- Confirm the hub **issues a usable tenant-scoped token** for a customer-plane `client_credentials`
+  client registered in a non-default tenant, authenticating at `https://<slug>.hub.stg.thoryn.org` —
+  the whole model turns on this.
+- A tenant-scoped key **cannot create workspaces**, so conformance runs the workspace-less `ci-signin`
+  recipe and example-e2e leaks one self-service test user per run into the standing workspace (no
+  user-delete recipe action). Track/close these on **SSO-2943**.
+- **Release prerequisite:** `examples apply ci-signin` needs the `ci-signin` recipe **bundled in the
+  released `thoryn` CLI jar**. Today the `cli-v*` release (from oathy `tools/cli`) bundles only
+  `simple-signin` — `ci-signin` lives in `thoryn-io/thoryn-cli`. Both suites go green only once the
+  released CLI ships `ci-signin`. This story is thoryn-examples-only and does not make that CLI change.
 
 ## Licence
 

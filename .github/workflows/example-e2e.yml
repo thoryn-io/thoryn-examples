@@ -1,84 +1,104 @@
 name: example-e2e
 
-# SSO-2909 (harness) + SSO-2912 (workflow), epic SSO-2906 — drive the `simple-signin`
-# example end-to-end against the STAGING SaaS in a real browser, capturing the REAL
-# verification email from an EPHEMERAL, in-job Mailpit sink so a genuine self-service
-# sign-up can proceed (Path B). NO k3d, NO self-deployed stack, NO external mail
-# service, NO persistent VM: the CLI talks to staging exactly as a customer would, and
-# the mail sink lives and dies with this GitHub Actions job.
+# SSO-2909 (harness) + SSO-2912 (workflow) + SSO-2942 (auth cutover), epic SSO-2934/SSO-2906 —
+# drive the `simple-signin` browser journey end-to-end against the STAGING SaaS in a real browser,
+# capturing the REAL verification email from an EPHEMERAL, in-job Mailpit sink so a genuine
+# self-service sign-up can proceed (Path B). NO k3d, NO self-deployed stack, NO external mail
+# service, NO persistent VM: the CLI talks to staging exactly as a customer would, and the mail sink
+# lives and dies with this GitHub Actions job.
+#
+# AUTH (SSO-2942 — moved OFF Workload Identity Federation): CI now authenticates with a
+# CUSTOMER-PLANE `client_credentials` API KEY the operator mints themselves (the model proven green
+# in thoryn-cli's provision Action). No GitHub OIDC, no `id-token: write`, no private signing key.
+# The key is TENANT-SCOPED — bound to one STANDING workspace via its `tnt` claim — so it CANNOT
+# create a fresh workspace per run. Instead the run provisions an EPHEMERAL OAuth client INSIDE a
+# STANDING workspace the operator owns (via the workspace-less `ci-signin` recipe), and the browser
+# journey signs a brand-new self-service user into THAT workspace.
+#
+# The hub grants a client-credentials token ONLY the scopes explicitly requested, so sign-in requests
+# EXACTLY this suite's set: tenant:applications.write + tenant:applications.read (create/verify/delete
+# the ephemeral app) AND tenant:email.write (point the standing workspace's BYO-SMTP at the per-run
+# tunnel — the tunnel is ephemeral, so the SMTP config must be (re)applied every run).
+#
+# PREREQUISITE (release sequencing) — the `ci-signin` recipe must be BUNDLED in the released thoryn CLI
+# jar for `examples apply ci-signin` to resolve. The `cli-v*` release (built from oathy `tools/cli`)
+# bundles only `simple-signin` today; `ci-signin` lives in thoryn-io/thoryn-cli. So this workflow goes
+# green only once the released CLI ships `ci-signin`. This story is thoryn-examples-only.
 #
 # How the sink works (product-owner decision — fully ephemeral, zero standing cost):
 #   • Mailpit runs as a Docker container INSIDE the runner: :1025 = SMTP, :8025 = HTTP API.
-#   • A GitHub-hosted runner has NO public inbound, but the tenant's BYO-SMTP (SSO-2917)
-#     must reach the sink over PUBLIC SMTP. So we open a public TCP TUNNEL to :1025 for
-#     the duration of the run (ngrok by default; `bore.pub` is a no-account fallback —
-#     flip SINK_TUNNEL). The tunnel yields a public host:port → the workspace BYO-SMTP.
-#     SmtpTargetGuard allows it because the tunnel host is public; staging egress is open.
-#   • The harness reads the captured mail over Mailpit's LOCAL API (localhost:8025, no
-#     auth) — the tunnel is SMTP-only and never exposes the API.
+#   • A GitHub-hosted runner has NO public inbound, but the tenant's BYO-SMTP (SSO-2917) must reach
+#     the sink over PUBLIC SMTP. So we open a public TCP TUNNEL to :1025 for the duration of the run
+#     (ngrok by default; `bore.pub` is a no-account fallback — flip SINK_TUNNEL). The tunnel yields a
+#     public host:port → the workspace BYO-SMTP. SmtpTargetGuard allows it because the tunnel host is
+#     public; staging egress is open.
+#   • The harness reads the captured mail over Mailpit's LOCAL API (localhost:8025, no auth) — the
+#     tunnel is SMTP-only and never exposes the API.
 #   • Everything is torn down when the job ends (container + tunnel die with the runner).
 #
-# Plaintext-over-tunnel caveat: the ngrok/bore TCP tunnel forwards raw bytes and cannot
-# present a valid STARTTLS cert for its ephemeral hostname, so the BYO-SMTP leg uses
-# `--transport-security none --allow-insecure`. This is acceptable ONLY because the sink
-# is a throwaway TEST mailbox that receives a single verification email per run and holds
-# nothing sensitive — never a pattern for a production SMTP provider.
+# Plaintext-over-tunnel caveat: the ngrok/bore TCP tunnel forwards raw bytes and cannot present a
+# valid STARTTLS cert for its ephemeral hostname, so the BYO-SMTP leg uses `--transport-security none
+# --allow-insecure`. This is acceptable ONLY because the sink is a throwaway TEST mailbox that
+# receives a single verification email per run and holds nothing sensitive — never a pattern for a
+# production SMTP provider.
 #
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │  SCAFFOLD — NOT YET ACTIVATED. Until the maintainer creates the three secrets │
-# │  below (see e2e/README.md) this workflow is workflow_dispatch-only and FAILS  │
-# │  at the WIF login step. A FIRST live run must also confirm the seams the      │
-# │  harness marks LIVE-CONFIRM (tenant self-service-signup entry, BYO-SMTP→sink   │
-# │  delivery over the tunnel, the RP OIDC round-trip). Do NOT treat a green local │
-# │  scaffold as a green pipeline.                                                 │
+# │  SCAFFOLD — NOT YET ACTIVATED. Until the operator creates the STANDING        │
+# │  workspace + API key and the repo secrets/vars below (see e2e/README.md) this │
+# │  workflow is workflow_dispatch-only and FAILS at the sign-in step. A FIRST    │
+# │  live run must also confirm the seams the harness marks LIVE-CONFIRM (tenant   │
+# │  self-service-signup entry, BYO-SMTP→sink delivery over the tunnel, the RP     │
+# │  OIDC round-trip). Do NOT treat a green local scaffold as a green pipeline.    │
 # └─────────────────────────────────────────────────────────────────────────────┘
 #
-# Auth = WIF (SSO-2910, same as conformance.yml): GitHub Actions OIDC → the hub's
-# Workload Identity Federation (RFC 8693 token-exchange), private_key_jwt client
-# assertion, NO shared client secret. Needs `id-token: write` + THORYN_CI_WIF_SIGNING_KEY.
-#
 # The journey (orchestrated below):
-#   WIF login → `examples apply simple-signin` (fresh workspace + public app + user)
-#   → start in-job Mailpit + open a public SMTP tunnel to it → point the workspace
-#   BYO-SMTP (SSO-2917) at the tunnel → start the recipe's loopback RP → Playwright
-#   Path-B journey (self-service sign-up → capture email from LOCAL Mailpit API →
-#   verify → sign in via RP → /protected) → teardown (sink + tunnel + `examples teardown`).
+#   client-credentials login (standing workspace issuer) → start in-job Mailpit + open a public SMTP
+#   tunnel to it → point the STANDING workspace BYO-SMTP (SSO-2917) at the tunnel → `examples apply
+#   ci-signin` (ephemeral public app in the standing workspace) → start the recipe's loopback RP →
+#   Playwright Path-B journey (self-service sign-up → capture email from LOCAL Mailpit API → verify →
+#   sign in via RP → /protected) → teardown (`examples teardown ci-signin` deletes the ephemeral app;
+#   reset the standing workspace BYO-SMTP; kill sink + tunnel + RP).
 
 on:
   workflow_dispatch:
     inputs:
       recipe:
-        description: "Recipe id to run (only simple-signin is wired for the browser journey today)"
+        description: "Workspace-less recipe id that provisions the ephemeral app (default: ci-signin)"
         required: false
-        default: simple-signin
+        default: ci-signin
   schedule:
     - cron: "41 4 * * *" # nightly, offset from conformance.yml (23 4)
 
 permissions:
-  contents: read # checkout
-  id-token: write # mint the GitHub Actions OIDC token the WIF login exchanges
+  contents: read # checkout only — no id-token: the API-key flow needs no GitHub OIDC
 
 concurrency:
-  group: example-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize: never let two runs race on the shared standing workspace's BYO-SMTP config.
+  group: example-e2e
+  cancel-in-progress: false
 
 env:
   THORYN_HUB: https://hub.stg.thoryn.org
   THORYN_GATEWAY: https://api.stg.thoryn.org
-  # identity host that serves the hosted register/login screens + the verify-email
-  # landing on staging. Overridden here if the tenant serves them on its own subdomain.
+  # identity host that serves the hosted register/login screens + the verify-email landing on
+  # staging. Overridden here if the tenant serves them on its own subdomain.
   IDENTITY_BASE_URL: https://identity.stg.thoryn.org
-  # The runner is headless with no OS keyring → the CLI's default token store is
-  # unavailable and it refuses to silently write plaintext. Sanctioned CI opt-in
-  # (same as conformance.yml): the token is short-lived (WIF-minted), runner ephemeral.
+  # The STANDING workspace the API key is scoped to (its `tnt`). Set as a repo variable so the
+  # operator owns it; the per-tenant issuer is derived from it below.
+  STANDING_WORKSPACE_SLUG: ${{ vars.CI_WORKSPACE_SLUG }}
+  # Which workspace-less recipe provisions the ephemeral app inside the standing workspace.
+  RECIPE: ${{ github.event.inputs.recipe || 'ci-signin' }}
+  # The runner is headless with no OS keyring → the CLI's default token store is unavailable and it
+  # refuses to silently write plaintext. Sanctioned CI opt-in (same as conformance.yml): the token is
+  # short-lived (client-credentials, no refresh), runner ephemeral.
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
-  # The tenant BYO-SMTP "from" address. Mailpit captures every message regardless of
-  # sender; a reserved .test domain keeps it unmistakably non-routable.
+  # The tenant BYO-SMTP "from" address. Mailpit captures every message regardless of sender; a
+  # reserved .test domain keeps it unmistakably non-routable.
   SMTP_FROM_ADDRESS: noreply@example.test
-  # Which public TCP tunnel to open to the in-job Mailpit SMTP port. Default `ngrok`
-  # (needs the NGROK_AUTHTOKEN secret + a free ngrok account); set the repo variable
-  # SINK_TUNNEL=bore for the no-account `bore.pub` fallback (see e2e/README.md).
+  # Which public TCP tunnel to open to the in-job Mailpit SMTP port. Default `ngrok` (needs the
+  # NGROK_AUTHTOKEN secret + a free ngrok account); set the repo variable SINK_TUNNEL=bore for the
+  # no-account `bore.pub` fallback (see e2e/README.md).
   SINK_TUNNEL: ${{ vars.SINK_TUNNEL || 'ngrok' }}
 
 jobs:
@@ -105,8 +125,8 @@ jobs:
       # ── Fetch the prebuilt thoryn CLI (published by oauthy's cli-release) ────
       - name: Download the prebuilt thoryn CLI (latest cli-v* release)
         env:
-          # BLOCKED(SSO-2912): secret OATHY_CLI_TOKEN must exist (already used by
-          # conformance.yml) — a token that can read thoryn-io/oauthy releases.
+          # secret OATHY_CLI_TOKEN — a token that can read thoryn-io/oauthy releases (same as
+          # conformance.yml).
           GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
         run: |
           set -euo pipefail
@@ -115,30 +135,33 @@ jobs:
           echo "Using CLI release $tag"
           gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
 
-      # ── Authenticate the CLI via GitHub OIDC → hub WIF (SSO-2910) ────────────
-      - name: Sign in (GitHub Actions OIDC → hub Workload Identity Federation)
+      # ── Authenticate the CLI with a customer-plane client-credentials API key (SSO-2942) ──
+      - name: Sign in (client-credentials API key at the standing workspace issuer)
         env:
-          # BLOCKED(SSO-2912): secret THORYN_CI_WIF_SIGNING_KEY must be created — the
-          # EC P-256 (ES256) PKCS#8 private key for the conformance-ci-github-wif
-          # exchange client (public half seeded on the hub; subject pinned to
-          # repo:thoryn-io/thoryn-examples:*). Same secret conformance.yml uses.
-          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
+          # <client-id>:<client-secret> — read from the env by the CLI, never on argv or in logs.
+          THORYN_API_KEY: ${{ secrets.THORYN_API_KEY }}
         run: |
           set -euo pipefail
-          [ -n "${THORYN_CI_WIF_SIGNING_KEY:-}" ] || { echo "::error::THORYN_CI_WIF_SIGNING_KEY is not set"; exit 1; }
-          # Proven login form (conformance.yml): --workload-identity defaults
-          # tenant=ci-conformance, client=conformance-ci-github-wif, kid, and requests
-          # the OIDC audience = --issuer (the hub's allowed_audience).
-          java -jar thoryn.jar login --workload-identity --issuer "$THORYN_HUB"
+          [ -n "${THORYN_API_KEY:-}" ] || { echo "::error::THORYN_API_KEY is not set — mint a client-credentials key scoped to the standing workspace (see e2e/README.md)"; exit 1; }
+          [ -n "${STANDING_WORKSPACE_SLUG:-}" ] || { echo "::error::repo variable CI_WORKSPACE_SLUG is not set — the standing workspace slug the key is scoped to"; exit 1; }
+          # Per-tenant issuer (NOT the default hub issuer) + shared gateway; both stamped onto the
+          # session (SSO-2827) so later commands need no host flags.
+          issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
+          echo "Signing in at $issuer (gateway $THORYN_GATEWAY)."
+          # Request EXACTLY this suite's scopes. applications.write+read provision/verify/delete the
+          # ephemeral app; email.write (re)points the standing workspace's BYO-SMTP at the per-run
+          # tunnel. The hub mints a token with only these — an omitted scope 403s that call.
+          java -jar thoryn.jar login --client-credentials \
+            --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
+            --scope "tenant:applications.write tenant:applications.read tenant:email.write"
+          java -jar thoryn.jar login --status
 
-      # ── Provision the example via the real product APIs ─────────────────────
       # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──
-      # (BEFORE apply, so its address can be passed to the recipe via --set.)
+      # (BEFORE the BYO-SMTP config, so its address can be pointed at the sink.)
       - name: Start in-job Mailpit + open a public TCP tunnel to its SMTP port
         id: sink
         env:
-          # BLOCKED(SSO-2912): secret NGROK_AUTHTOKEN must be created (free ngrok
-          # account) — the ONLY new secret this workflow adds. Not needed when
+          # secret NGROK_AUTHTOKEN — free ngrok account; the ONLY tunnel secret. Not needed when
           # SINK_TUNNEL=bore (bore.pub is account-less).
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
@@ -211,45 +234,58 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Public SMTP sink: ${host}:${port} → in-job Mailpit :1025 (API on localhost:8025)"
 
-      # ── Provision the workspace + app + user, AND configure the new workspace's ──
-      # ── BYO-SMTP → the tunnelled sink IN-FLOW via `apply --set` (SSO-2927). ──
-      # The recipe's optional configure-email-provider step runs on the workspace's live
-      # PROVISIONING TOKEN — the only thing that can reach a just-provisioned workspace in
-      # CI (the standalone `workspace email-provider` command needs a per-tenant re-auth
-      # the WIF identity can't do: `login --issuer https://{slug}.hub.stg.thoryn.org` → 401).
-      - name: Apply the simple-signin example (+ BYO-SMTP → the tunnelled sink)
-        id: apply
+      # ── Point the STANDING workspace's BYO-SMTP (SSO-2917) at the tunnelled sink ──
+      # Applied PER RUN because the tunnel is ephemeral. Done with the standalone
+      # `workspace email-provider set` command (needs tenant:email.write) against the standing
+      # workspace's gateway — the tenant-scoped API key CAN reach it directly (the previous WIF
+      # identity could not, which is why the old flow smuggled SMTP config in via the recipe). The
+      # SMTP password is passed through a 0600 temp FILE, never on argv (the CLI has no
+      # `--smtp-password <value>` flag by design — SSO-1545 secret-safety).
+      - name: Point the standing workspace BYO-SMTP at the tunnelled sink
         env:
           SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
           SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
         run: |
           set -euo pipefail
           [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
-          # transport=none + allow-insecure: the TCP tunnel can't present a valid STARTTLS
-          # cert for its ephemeral hostname — plaintext to a throwaway TEST sink only. The
-          # per-run SMTP password (ephemeral, masked, dies with the runner) is passed via
-          # --set; MP_SMTP_AUTH=ci:$SMTP_PW means only this run can deliver to the sink.
-          java -jar thoryn.jar examples apply simple-signin --yes \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" \
-            --set smtpHost="$SINK_SMTP_HOST" \
-            --set smtpPort="$SINK_SMTP_PORT" \
-            --set smtpUsername=ci \
-            --set smtpPassword="$SMTP_PW" \
-            --set smtpTransport=none \
-            --set smtpAllowInsecure=true \
-            --set smtpFromAddress="$SMTP_FROM_ADDRESS" | tee /tmp/apply.out
-          # Parse slug + clientId from the result lines (workspace: slug=… / client: clientId=…)
-          # and CONSTRUCT the tenant issuer from the slug (the CLI prints no issuer URL).
-          slug="$(grep -oE 'slug=[a-z0-9][a-z0-9-]*' /tmp/apply.out | head -1 | cut -d= -f2)"
-          client="$(grep -oE 'clientId=app-[A-Za-z0-9-]+' /tmp/apply.out | head -1 | cut -d= -f2)"
-          issuer="https://${slug}.hub.stg.thoryn.org"
-          [ -n "$slug" ] && [ -n "$client" ] || { echo "::error::could not parse slug/clientId from apply output"; sed -n '1,80p' /tmp/apply.out; exit 1; }
+          pw_file="$(mktemp)"; chmod 600 "$pw_file"
+          printf '%s' "$SMTP_PW" > "$pw_file"
+          # transport=none + allow-insecure: the TCP tunnel can't present a valid STARTTLS cert for
+          # its ephemeral hostname — plaintext to a throwaway TEST sink only. MP_SMTP_AUTH=ci:$SMTP_PW
+          # means only this run can deliver to the sink. `set` is a merge-upsert (PUT) — not a
+          # destructive action — so it needs no production `--confirm`.
+          java -jar thoryn.jar workspace email-provider set \
+            --smtp-host "$SINK_SMTP_HOST" \
+            --smtp-port "$SINK_SMTP_PORT" \
+            --smtp-username ci \
+            --smtp-password-file "$pw_file" \
+            --transport-security none --allow-insecure \
+            --from-address "$SMTP_FROM_ADDRESS" \
+            --enabled true \
+            --gateway "$THORYN_GATEWAY"
+          rm -f "$pw_file"
+          echo "Standing workspace '$STANDING_WORKSPACE_SLUG' BYO-SMTP → ${SINK_SMTP_HOST}:${SINK_SMTP_PORT}"
+
+      # ── Provision the EPHEMERAL app inside the standing workspace via the recipe ──
+      - name: Apply the workspace-less recipe (ephemeral app in the standing workspace)
+        id: apply
+        run: |
+          set -euo pipefail
+          # `--set workspaceSlug=<standing-slug>` names the workspace the app is created in; ci-signin
+          # has NO hub.createWorkspace step. Hosts come from the stamped session.
+          java -jar thoryn.jar examples apply "$RECIPE" \
+            --set "workspaceSlug=${STANDING_WORKSPACE_SLUG}" --yes
+          # The receipt is the portable, secret-free record of what was provisioned — parse the
+          # ephemeral client id from it, and CONSTRUCT the tenant issuer from the standing slug.
+          java -jar thoryn.jar examples receipt "$RECIPE" --output json > /tmp/receipt.json
+          client="$(jq -r '[.resources[] | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
+          issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
+          [ -n "$client" ] || { echo "::error::could not parse the ephemeral clientId from the receipt"; cat /tmp/receipt.json; exit 1; }
           {
             echo "issuer=$issuer"
             echo "client_id=$client"
-            echo "slug=$slug"
           } >> "$GITHUB_OUTPUT"
-          echo "Provisioned workspace '$slug' (issuer=$issuer, client=$client) with BYO-SMTP → sink"
+          echo "Provisioned ephemeral client '$client' in standing workspace '$STANDING_WORKSPACE_SLUG' (issuer=$issuer)"
 
       # ── Start the loopback RP (the app the end user signs in to) ─────────────
       - name: Start the loopback relying-party
@@ -295,14 +331,19 @@ jobs:
           retention-days: 14
 
       # ── Teardown — always, even on failure ───────────────────────────────────
-      # The container + tunnel would die with the runner regardless; killing them
-      # explicitly is tidy. `examples teardown` hard-deletes the workspace.
-      - name: Teardown the sink, tunnel, RP, and example
+      # The container + tunnel would die with the runner regardless; killing them explicitly is tidy.
+      # `examples teardown` deletes ONLY the ephemeral app (ci-signin has no deleteWorkspace — the
+      # standing workspace is the operator's and MUST survive). The BYO-SMTP is reset so the standing
+      # workspace doesn't keep a dangling (dead-tunnel) SMTP config between runs; `--confirm <slug>`
+      # clears the production-confirmation guard (SSO-2413). Best-effort — the next run's `set`
+      # overwrites any stale config regardless.
+      - name: Teardown the sink, tunnel, RP, BYO-SMTP, and ephemeral app
         if: always()
         run: |
           [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
           [ -n "${NGROK_PID:-}" ] && kill "$NGROK_PID" 2>/dev/null || true
           [ -n "${BORE_PID:-}" ] && kill "$BORE_PID" 2>/dev/null || true
           docker rm -f mailpit 2>/dev/null || true
-          java -jar thoryn.jar examples teardown simple-signin \
-            --hub "$THORYN_HUB" --gateway "$THORYN_GATEWAY" || true
+          java -jar thoryn.jar examples teardown "$RECIPE" || true
+          java -jar thoryn.jar workspace email-provider reset \
+            --confirm "$STANDING_WORKSPACE_SLUG" --gateway "$THORYN_GATEWAY" || true

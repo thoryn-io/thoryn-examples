@@ -1,15 +1,28 @@
-# Example e2e harness (SSO-2909 / SSO-2912)
+# Example e2e harness (SSO-2909 / SSO-2912 / SSO-2942)
 
-> **SCAFFOLD — NOT YET ACTIVATED.** This harness drives the `simple-signin` example
-> end-to-end against the **staging SaaS** in a real browser. It cannot go green until a
-> maintainer creates the CI secrets below **and** a first live run confirms the three
-> `LIVE-CONFIRM` seams noted in the spec. Until then `.github/workflows/example-e2e.yml`
-> is `workflow_dispatch`-only and will fail at the WIF login step.
+> **SCAFFOLD — NOT YET ACTIVATED.** This harness drives the `simple-signin` browser
+> journey end-to-end against the **staging SaaS** in a real browser. It cannot go green
+> until the operator completes the one-time **CI provisioning setup** (standing workspace
+> + `client_credentials` API key — see the repo [`README.md`](../README.md)) **and** a
+> first live run confirms the three `LIVE-CONFIRM` seams noted in the spec. Until then
+> `.github/workflows/example-e2e.yml` is `workflow_dispatch`-only and will fail at the
+> sign-in step.
 
 A Playwright harness that runs the **Path B** journey: a genuine self-service sign-up
-of a brand-new end user on a freshly-provisioned workspace, capturing the **real
-verification email** from an **ephemeral, in-job [Mailpit](https://mailpit.axllent.org/)**
-sink so the flow can proceed — no DB injection, no stubbing.
+of a brand-new end user on a **standing workspace** (into which the run provisions an
+ephemeral OAuth app), capturing the **real verification email** from an **ephemeral,
+in-job [Mailpit](https://mailpit.axllent.org/)** sink so the flow can proceed — no DB
+injection, no stubbing.
+
+> **Auth (SSO-2942).** The workflow moved **off Workload Identity Federation** onto a
+> **customer-plane `client_credentials` API key** scoped to the standing workspace (the
+> model proven in `thoryn-cli`). The key authenticates at the workspace's per-tenant
+> issuer requesting `tenant:applications.write` + `tenant:applications.read` +
+> `tenant:email.write`. Because a tenant-scoped key **cannot create workspaces**, the run
+> provisions an **ephemeral app inside the standing workspace** (`ci-signin`) and points
+> that workspace's **BYO-SMTP at the per-run tunnel** each run — it does not mint (or
+> hard-delete) a fresh workspace. One self-service test user is therefore left behind per
+> run (no user-delete recipe action — SSO-2943).
 
 ## The mail sink is ephemeral and lives in the CI job — no external service, no VM
 
@@ -99,17 +112,20 @@ npm run install-browser && npm test
 The full CI orchestration lives in
 [`../.github/workflows/example-e2e.yml`](../.github/workflows/example-e2e.yml).
 
-## Secrets a maintainer must create to activate
+## Config a maintainer must create to activate
 
-The workflow references **three** repo secrets — that is the whole set. Until they exist
-it is `workflow_dispatch`-only and fails at the login step. Create them under
-**Settings → Secrets and variables → Actions**:
+The full **CI provisioning setup** (standing workspace + `client_credentials` API key) lives in
+the repo [`README.md`](../README.md). Beyond that one-time setup the workflow references the repo
+config below. Until it exists the workflow is `workflow_dispatch`-only and fails at the sign-in step.
+Set it under **Settings → Secrets and variables → Actions**:
 
-| Secret | Required | What it is |
-|---|---|---|
-| `THORYN_CI_WIF_SIGNING_KEY` | yes | EC P-256 (ES256) **private** key (PKCS#8 PEM) for the `conformance-ci-github-wif` exchange client. Public half is registered on the hub (oathy migration; subject pinned to `repo:thoryn-io/thoryn-examples:*`). Same secret the `conformance.yml` workflow uses. |
-| `OATHY_CLI_TOKEN` | yes | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
-| `NGROK_AUTHTOKEN` | yes¹ | Authtoken for a **free** [ngrok](https://ngrok.com) account — used to open the public TCP tunnel to the in-job Mailpit SMTP port. |
+| Kind | Name | Required | What it is |
+|---|---|---|---|
+| secret | `THORYN_API_KEY` | yes | `<client-id>:<client-secret>` of the customer-plane `client_credentials` API key scoped to the standing workspace, granted `tenant:applications.write` + `tenant:applications.read` + `tenant:email.write`. Same secret `conformance.yml` uses. |
+| secret | `OATHY_CLI_TOKEN` | yes | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
+| secret | `NGROK_AUTHTOKEN` | yes¹ | Authtoken for a **free** [ngrok](https://ngrok.com) account — used to open the public TCP tunnel to the in-job Mailpit SMTP port. |
+| variable | `CI_WORKSPACE_SLUG` | yes | Slug of the standing workspace the API key is scoped to (e.g. `ci-conformance`). |
+| variable | `SINK_TUNNEL` | no | Set to `bore` for the account-less `bore.pub` tunnel (then `NGROK_AUTHTOKEN` is unneeded). |
 
 ¹ Not needed if you set the repo **variable** `SINK_TUNNEL=bore` (the account-less
 `bore.pub` fallback). No Mailpit / SMTP secrets are needed at all — the sink is created
@@ -117,13 +133,14 @@ inside the job, and its SMTP password is generated per run.
 
 ## What only a first live run can confirm
 
-- **WIF trust** — GitHub OIDC from `thoryn-io/thoryn-examples` is accepted by the
-  staging hub for the required audience (oathy V148 per-environment WIF audience).
-- **The tenant self-service-signup entry** — that the workspace's cloned identity
+- **Tenant-scoped API-key sign-in** — that the staging hub issues a usable token for the
+  customer-plane `client_credentials` key authenticating at the standing workspace's
+  per-tenant issuer `https://<slug>.hub.stg.thoryn.org` (the model turns on this — SSO-2943).
+- **The tenant self-service-signup entry** — that the standing workspace's identity
   member exposes a self-service "Sign up" link from its hosted login, and its exact
   accessible name / form selectors (`gotoRegisterFromLogin`).
 - **BYO-SMTP → tunnel → Mailpit delivery** — that `thoryn workspace email-provider set`
-  actually routes the verification email through the tunnel to the in-job Mailpit sink
-  (and that a plaintext relay to the tunnel is accepted).
+  against the standing workspace routes the verification email through the tunnel to the
+  in-job Mailpit sink (and that a plaintext relay to the tunnel is accepted).
 - **The RP OIDC round-trip** — that the freshly-verified account authenticates through
   the workspace hub federation and lands on the RP's `/protected` page.

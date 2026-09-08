@@ -1,0 +1,372 @@
+name: example-e2e
+
+# SSO-2912 (epic SSO-2906) — deploy the PUBLISHED thoryn-hub product browsably on
+# a local k3d cluster and drive the `simple-signin` example end-to-end in a real
+# browser, capturing the REAL verification email so the sign-up flow can proceed.
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │  SCAFFOLD — NOT YET FUNCTIONAL. This workflow is a reviewable SKELETON.       │
+# │  It has never been run against a live cluster and CANNOT go green today.      │
+# │  Every unresolved dependency is marked `# BLOCKED(SSO-2912): …`. See          │
+# │  docs/ci-e2e-plan.md §7 for the full blocker list and §2 for the verdict.     │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Orchestration (Option B — the example workflow glues the pieces):
+#   k3d up → ingress-nginx + cert-manager + CoreDNS split-horizon → Mailpit
+#   → deploy the packaged t-cloud-packaging thoryn-hub chart (released ghcr images
+#     + a browsable overlay) → `thoryn login --workload-identity` → `thoryn
+#     examples apply simple-signin` → start the loopback RP → Playwright Path-B
+#     journey (sign-up → capture email → verify → sign in via RP → protected)
+#   → `thoryn examples teardown` → k3d down.
+#
+# Auth = WIF (SSO-2910): GitHub OIDC → hub Workload Identity Federation, no shared
+# client secret. Needs `id-token: write` + the THORYN_CI_WIF_SIGNING_KEY secret.
+#
+# Runner: this is DRAFTED for ubuntu-latest, but a full k3d stack is heavy for a
+# 2-vCPU/7-GB GitHub-hosted runner — oathy runs the equivalent on a beefy
+# self-hosted Hetzner runner precisely because it flaked on small runners. See
+# docs/ci-e2e-plan.md §7 item 10 (runner capacity — OPEN DECISION).
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart_ref:
+        description: "t-cloud-packaging ref to check out for the chart (default: main)"
+        required: false
+        default: main
+  # NOTE: intentionally NOT wired to pull_request / schedule yet — this is a
+  # scaffold. Wire a trigger only once the §7 blockers are resolved and the
+  # runner-capacity decision (item 10) is made.
+
+permissions:
+  contents: read      # checkout
+  id-token: write     # mint the GitHub Actions OIDC token the WIF login exchanges
+
+concurrency:
+  group: example-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Browsable nip.io hosts (mirror oathy values-local.yaml). nip.io wildcard-
+  # resolves <label>.127.0.0.1.nip.io → 127.0.0.1, so no /etc/hosts, no sudo.
+  HUB_URL: https://hub.127.0.0.1.nip.io
+  IDENTITY_URL: https://identity.127.0.0.1.nip.io
+  API_URL: https://api.127.0.0.1.nip.io
+  MAILPIT_URL: https://mailpit.127.0.0.1.nip.io
+  # The runner is headless with no OS keyring → CLI's default token store is
+  # unavailable and it refuses to silently write plaintext. Sanctioned CI opt-in
+  # (same as conformance.yml): the token is short-lived (WIF-minted), runner is
+  # ephemeral.
+  THORYN_CI_PLAINTEXT_TOKENS: "1"
+  RP_PORT: "8471"
+
+jobs:
+  example-e2e:
+    name: example-e2e (published stack)
+    # BLOCKED(SSO-2912): runner capacity. A full k3d stack (hub + identity +
+    # product-api + api-gateway + bundled postgres/redis/openbao + ingress-nginx
+    # + cert-manager + Mailpit + Chromium) is heavy for ubuntu-latest. Options:
+    # a larger GitHub-hosted runner (ubuntu-latest-4-core / bigger), a self-hosted
+    # runner for this repo, or nightly-only. Decision pending (plan §7 item 10).
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout thoryn-examples
+        uses: actions/checkout@v4
+
+      # ── The packaged product chart ──────────────────────────────────────────
+      # BLOCKED(SSO-2912): the chart lives in a SEPARATE repo (thoryn-io/
+      # t-cloud-packaging). Check it out here. Needs read access (public or a PAT).
+      - name: Checkout the packaged thoryn-hub chart (t-cloud-packaging)
+        uses: actions/checkout@v4
+        with:
+          repository: thoryn-io/t-cloud-packaging
+          ref: ${{ github.event.inputs.chart_ref || 'main' }}
+          path: t-cloud-packaging
+          # token: ${{ secrets.OATHY_CLI_TOKEN }}   # if the repo is private
+
+      - name: Set up Java (for the thoryn CLI jar)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node.js (Playwright harness + loopback RP)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── Cluster bring-up (mirrors oathy deploy-smoke-test.yml, GitHub-hosted) ─
+      - name: Install k3d + kubectl
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL -o "$HOME/.local/bin/k3d" \
+            "https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64"
+          KVER="$(curl -sSfL https://dl.k8s.io/release/stable.txt)"
+          curl -sSfL -o "$HOME/.local/bin/kubectl" \
+            "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl"
+          chmod +x "$HOME/.local/bin/k3d" "$HOME/.local/bin/kubectl"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Create k3d cluster (host :80/:443 → ingress-nginx)
+        run: |
+          k3d cluster create thoryn-example \
+            --agents 0 \
+            --port "80:80@loadbalancer" \
+            --port "443:443@loadbalancer" \
+            --k3s-arg "--disable=traefik@server:0" \
+            --k3s-arg "--disable=metrics-server@server:0" \
+            --wait
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install ingress-nginx
+        run: |
+          # BLOCKED(SSO-2912): the packaged chart needs the configuration-snippet
+          # ConfigMap keys ONLY if it uses snippet annotations (it does not today).
+          # Plain ingress-nginx defaults suffice for the hub/identity/api hosts.
+          helm upgrade --install ingress-nginx ingress-nginx \
+            --repo https://kubernetes.github.io/ingress-nginx \
+            --namespace ingress-nginx --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --wait --timeout 5m
+          kubectl rollout status deployment/ingress-nginx-controller \
+            -n ingress-nginx --timeout=3m
+
+      - name: Install cert-manager (CRDs)
+        run: |
+          # Required if the chart's TLS renders cert-manager Certificates. The
+          # packaged chart references a clusterIssuer only when ingress.tls.
+          # clusterIssuer is set; we bring cert-manager up regardless so a
+          # self-signed issuer is available.
+          helm upgrade --install cert-manager cert-manager \
+            --repo https://charts.jetstack.io \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 5m
+          kubectl rollout status deployment/cert-manager-webhook \
+            -n cert-manager --timeout=3m
+
+      - name: CoreDNS split-horizon — resolve nip.io hosts to the ingress in-cluster
+        run: |
+          # Ported verbatim from oathy deploy-smoke-test.yml: the hub's
+          # back-channel federation calls to identity's PUBLIC issuer must resolve
+          # to the ingress from INSIDE the cluster (127.0.0.1 is a pod's own
+          # localhost). Without this the authorization_code journey fails with
+          # `federation_unavailable`.
+          set -euo pipefail
+          ING=ingress-nginx-controller.ingress-nginx.svc.cluster.local
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: coredns-custom
+            namespace: kube-system
+          data:
+            nip-io.override: |
+              rewrite name hub.127.0.0.1.nip.io $ING
+              rewrite name identity.127.0.0.1.nip.io $ING
+              rewrite name api.127.0.0.1.nip.io $ING
+              rewrite name mailpit.127.0.0.1.nip.io $ING
+          EOF
+          kubectl -n kube-system rollout restart deploy coredns
+          kubectl -n kube-system rollout status deploy coredns --timeout=120s
+
+      - name: Create namespace + deploy Mailpit test-SMTP
+        run: |
+          # Mailpit is test scaffolding (never a product component), applied as a
+          # raw manifest. Vendored from oathy scripts/local-e2e/mailpit.yaml.
+          # BLOCKED(SSO-2912): vendor e2e/cluster/mailpit.yaml into this repo (a
+          # copy of oathy's, with the ns/hosts kept). The path below is the target.
+          kubectl create namespace thoryn --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f e2e/cluster/mailpit.yaml
+
+      # ── Resolve released image tags (published product) ─────────────────────
+      - name: Resolve published ghcr image tags
+        id: images
+        env:
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          # BLOCKED(SSO-2912): there is NO floating `latest` tag — oathy publishes
+          # ghcr.io/thoryn-io/<service>:<per-service-content-SHA>. Resolve a
+          # concrete tag per service (e.g. the newest package version via `gh api`),
+          # OR have t-cloud-packaging pin real digests in VERSION-MATRIX + values
+          # (currently <sha256:TBD>). Until then these are placeholders.
+          echo "hub_tag=BLOCKED_RESOLVE_ME"        >> "$GITHUB_OUTPUT"
+          echo "identity_tag=BLOCKED_RESOLVE_ME"   >> "$GITHUB_OUTPUT"
+          echo "productapi_tag=BLOCKED_RESOLVE_ME" >> "$GITHUB_OUTPUT"
+          echo "gateway_tag=BLOCKED_RESOLVE_ME"    >> "$GITHUB_OUTPUT"
+          echo "::error::BLOCKED(SSO-2912): image tag resolution not implemented — see docs/ci-e2e-plan.md §5"
+          exit 1
+
+      # BLOCKED(SSO-2912): if the ghcr packages are PRIVATE, create a k3d pull
+      # secret so the cluster can pull them (public → this step is a no-op).
+      # - name: Create ghcr pull secret
+      #   run: |
+      #     kubectl -n thoryn create secret docker-registry ghcr-pull \
+      #       --docker-server=ghcr.io \
+      #       --docker-username="${{ github.actor }}" \
+      #       --docker-password="${{ secrets.OATHY_CLI_TOKEN }}"
+
+      # ── Customer-supplied Secrets the chart's sovereignty contract requires ──
+      - name: Create chart Secrets (db / redis / openbao credentials)
+        run: |
+          # The packaged chart reads credentials from customer-created Secrets
+          # (thoryn-db-credentials, thoryn-redis-credentials). For a browsable
+          # trial these are throwaway values.
+          kubectl -n thoryn create secret generic thoryn-db-credentials \
+            --from-literal=username=thoryn --from-literal=password=thoryn-e2e-pw
+          kubectl -n thoryn create secret generic thoryn-redis-credentials \
+            --from-literal=password=thoryn-e2e-redis-pw
+          # BLOCKED(SSO-2912): bundled Postgres creates ONE database; the stack
+          # needs three (oauthy/product_api/identity). Either the chart's bundled
+          # Postgres must create all three (t-cloud-packaging change, plan §7 #2)
+          # or an external 3-DB Postgres must be provisioned here.
+          # BLOCKED(SSO-2912): bundled OpenBao provisions NO Transit signing key,
+          # so the hub's VaultKeyBootstrap crashes → hub never Ready. Needs a
+          # signing-key init job in the chart (t-cloud-packaging, plan §7 #1).
+
+      # ── Deploy the PUBLISHED chart + browsable overlay ──────────────────────
+      - name: Deploy the packaged thoryn-hub chart (browsable overlay)
+        run: |
+          # BLOCKED(SSO-2912): the browsable overlay (e2e/cluster/values-example.yaml)
+          # must supply, ON TOP of the packaged chart:
+          #   - global.image.registry=ghcr.io/thoryn-io + per-service image.name
+          #     overrides (authorization-hub/identity-service/product-api/api-gateway)
+          #     + the resolved tags from the images step.
+          #   - tenancy.mode=multi (the recipe provisions a NEW tenant/workspace).
+          #   - ingress.hosts.{hub,identity,api} = the nip.io hosts.
+          #   - hub.publicBaseUrl / identity.publicBaseUrl = the nip.io origins.
+          #   - hub.env / identity.env: the apex-host→default-tenant mapping, the
+          #     OutboundUrlGuard allow-list for identity's host, the federation
+          #     member issuer/redirect, OAUTHY_FLYWAY_SEED_DEMO, the Mailpit SMTP
+          #     wiring, and OAUTHY_FLYWAY_CONFORMANCE_WIF_AUDIENCE=$HUB_URL.
+          #     (See docs/ci-e2e-plan.md §3–§4. Several of these are chart-hardcoded
+          #     to DIFFERENT keys and cannot be overridden via env — plan §7 #4.)
+          #   - NONE of the self-signed-CA-trust affordance exists in the chart
+          #     (plan §7 #3) — the hub→identity TLS handshake will fail without it.
+          #   - production Spring profile does not exist in identity/product-api/
+          #     api-gateway images yet (plan §7 #5).
+          helm upgrade --install thoryn t-cloud-packaging/charts/thoryn-hub \
+            --namespace thoryn \
+            -f e2e/cluster/values-example.yaml \
+            --set global.image.tag="${{ steps.images.outputs.hub_tag }}" \
+            --wait --timeout 15m
+          echo "::error::BLOCKED(SSO-2912): the packaged chart is not deployable browsably today — see docs/ci-e2e-plan.md §2"
+          exit 1
+
+      - name: Wait for the stack to be Ready
+        run: |
+          for d in hub identity product-api api-gateway; do
+            kubectl -n thoryn rollout status "deploy/thoryn-$d" --timeout=5m || true
+          done
+          kubectl -n thoryn get pods -o wide
+
+      # ── Authenticate the CLI via GitHub OIDC → hub WIF (SSO-2910) ────────────
+      - name: Download the prebuilt thoryn CLI (latest cli-v* release)
+        env:
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/oauthy --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/oauthy"; exit 1; }
+          gh release download "$tag" --repo thoryn-io/oauthy --pattern 'thoryn.jar' --dir .
+
+      - name: Sign in (GitHub OIDC → hub Workload Identity Federation)
+        env:
+          THORYN_CI_WIF_SIGNING_KEY: ${{ secrets.THORYN_CI_WIF_SIGNING_KEY }}
+        run: |
+          # BLOCKED(SSO-2912): the k3d hub issuer $HUB_URL is accepted as a WIF
+          # audience ONLY once oathy V148 / #3447 (per-environment WIF audience)
+          # lands. Until then this login is rejected (audience mismatch).
+          # BLOCKED(SSO-2912): THORYN_CI_WIF_SIGNING_KEY must be created as a repo
+          # secret by a human (plan §7 #8).
+          set -euo pipefail
+          [ -n "${THORYN_CI_WIF_SIGNING_KEY:-}" ] || { echo "::error::THORYN_CI_WIF_SIGNING_KEY is not set"; exit 1; }
+          java -jar thoryn.jar login --workload-identity \
+            --issuer "$HUB_URL" --gateway "$API_URL"
+
+      # ── Provision the example via the real product API ──────────────────────
+      - name: Apply the simple-signin example
+        id: apply
+        run: |
+          # `thoryn examples apply` provisions the workspace + public OAuth client
+          # (+ a user) through supported product APIs, and PRINTS the issuer +
+          # client-id (recipe README). Capture them for the loopback RP.
+          # BLOCKED(SSO-2912): the exact stdout/receipt contract to parse
+          # THORYN_ISSUER + THORYN_CLIENT_ID from is unverified against the
+          # released CLI — adjust the grep once confirmed.
+          set -euo pipefail
+          out="$(java -jar thoryn.jar examples apply simple-signin --yes \
+                   --hub "$HUB_URL" --gateway "$API_URL" | tee /tmp/apply.out)"
+          issuer="$(grep -oE 'https://[a-z0-9-]+\.hub\.127\.0\.0\.1\.nip\.io' /tmp/apply.out | head -1)"
+          client="$(grep -oE 'app-[A-Za-z0-9]+' /tmp/apply.out | head -1)"
+          [ -n "$issuer" ] && [ -n "$client" ] || { echo "::error::could not parse issuer/client from apply output"; exit 1; }
+          echo "issuer=$issuer" >> "$GITHUB_OUTPUT"
+          echo "client_id=$client" >> "$GITHUB_OUTPUT"
+
+      # ── Start the loopback RP (the app the end user signs in to) ─────────────
+      - name: Start the loopback relying-party
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          PORT: ${{ env.RP_PORT }}
+        run: |
+          node recipes/simple-signin/apps/loopback-rp/server.js &
+          echo "RP_PID=$!" >> "$GITHUB_ENV"
+          # Wait for the RP to answer on its loopback port.
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${RP_PORT}/" >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+      # ── Drive the Path-B browser journey (SSO-2909) ─────────────────────────
+      - name: Run the Playwright harness (Path B — email capture)
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
+          IDENTITY_BASE_URL: ${{ env.IDENTITY_URL }}
+          MAILPIT_BASE_URL: ${{ env.MAILPIT_URL }}
+          CI: "true"
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-e2e-playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ── Teardown ─────────────────────────────────────────────────────────────
+      - name: Teardown the example (delete workspace + client)
+        if: always()
+        run: |
+          [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
+          java -jar thoryn.jar examples teardown simple-signin \
+            --hub "$HUB_URL" --gateway "$API_URL" || true
+
+      - name: Dump hub + identity logs on failure
+        if: failure()
+        run: |
+          for app in hub identity; do
+            echo "::group::thoryn-$app logs"
+            kubectl -n thoryn logs "deploy/thoryn-$app" --tail=300 2>&1 \
+              | grep -iE 'federation|discovery|OutboundUrl|vault|transit|error|exception|WARN|invalid_' \
+              | tail -80 || true
+            echo "::endgroup::"
+          done
+
+      - name: Delete the k3d cluster
+        if: always()
+        run: k3d cluster delete thoryn-example 2>/dev/null || true

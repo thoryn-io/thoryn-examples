@@ -1,0 +1,105 @@
+# SSO-2913 — Mailpit test-SMTP sink for the browsable example e2e (vendored from
+# oathy scripts/local-e2e/mailpit.yaml, SSO-2816).
+#
+# The full Path-B journey must capture the REAL verification email identity-service
+# sends. Mailpit is a throwaway SMTP sink + HTTP message API:
+#   - SMTP  :1025 — identity delivers here (point identity's SPRING_MAIL_HOST/PORT
+#                   at thoryn-mailpit:1025 via identity.env in values-example.yaml).
+#   - HTTP  :8025 — REST API (GET /api/v1/messages, GET /api/v1/message/{id}),
+#                   exposed at https://mailpit.127.0.0.1.nip.io so the host-side
+#                   Playwright runner can poll it. An exact-host Ingress wins over
+#                   the hub's *.127.0.0.1.nip.io wildcard.
+#
+# TEST SCAFFOLDING ONLY — applied by the workflow with `kubectl apply`, never part
+# of the thoryn-hub chart, never ships to a customer.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thoryn-mailpit
+  namespace: thoryn
+  labels:
+    app.kubernetes.io/name: thoryn-mailpit
+    app.kubernetes.io/part-of: thoryn-example-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thoryn-mailpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: thoryn-mailpit
+        app.kubernetes.io/part-of: thoryn-example-e2e
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MP_SMTP_AUTH_ACCEPT_ANY
+              value: "true"
+            - name: MP_SMTP_AUTH_ALLOW_INSECURE
+              value: "true"
+          ports:
+            - name: smtp
+              containerPort: 1025
+            - name: http
+              containerPort: 8025
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thoryn-mailpit
+  namespace: thoryn
+  labels:
+    app.kubernetes.io/name: thoryn-mailpit
+    app.kubernetes.io/part-of: thoryn-example-e2e
+spec:
+  selector:
+    app.kubernetes.io/name: thoryn-mailpit
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: smtp
+    - name: http
+      port: 8025
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: thoryn-mailpit
+  namespace: thoryn
+  labels:
+    app.kubernetes.io/name: thoryn-mailpit
+    app.kubernetes.io/part-of: thoryn-example-e2e
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mailpit.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: thoryn-mailpit
+                port:
+                  number: 8025

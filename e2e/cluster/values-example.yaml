@@ -1,0 +1,119 @@
+# SSO-2912 — browsable overlay for the PUBLISHED thoryn-hub chart (t-cloud-packaging),
+# layered on top of the chart's own values.yaml:
+#   helm upgrade --install thoryn t-cloud-packaging/charts/thoryn-hub -f e2e/cluster/values-example.yaml
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ SCAFFOLD / NOT-YET-DEPLOYABLE. This overlay is INCOMPLETE by necessity:      │
+# │ several affordances the browsable OAuth journey needs are ABSENT from the    │
+# │ packaged chart and cannot be supplied from an overlay (they are chart-side   │
+# │ or image-side). Every such gap is marked `# BLOCKED(SSO-2912): …`.           │
+# │ See docs/ci-e2e-plan.md §3–§4 and §7 for the full analysis.                  │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+global:
+  image:
+    # Pull the PUBLISHED images straight from ghcr (the customer-facing chart
+    # expects SWR-mirrored `thoryn-*` names; ghcr uses the service names, so each
+    # <service>.image.name is overridden below to the ghcr name).
+    registry: ghcr.io/thoryn-io
+    # BLOCKED(SSO-2912): no floating `latest` — resolve a per-service content SHA
+    # (plan §5). The workflow's `images` step sets these via --set at deploy time.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # BLOCKED(SSO-2912): the packaged chart's prodEnv sets SPRING_PROFILES_ACTIVE to
+  # this. The services ship only application-staging.yml (no application-production
+  # .yml) — plan §7 #5. Setting `staging` here is a WORKAROUND that leaks the
+  # vendor's internal profile into the "published product" path; the honest fix is
+  # a real production profile in oathy. Left blank to force the decision.
+  springProfile: ""
+
+# The recipe provisions a NEW tenant (workspace) → multi-tenant broker path.
+tenancy:
+  mode: multi
+  defaultTenant: primary
+
+hub:
+  image:
+    name: authorization-hub   # ghcr name (chart default is thoryn-hub)
+  publicBaseUrl: "https://hub.127.0.0.1.nip.io"
+  env:
+    # BLOCKED(SSO-2912): env-key reconciliation (plan §4/§7 #4). The chart hardcodes
+    # OAUTHY_HUB_PUBLIC_BASE_URL / OAUTHY_TENANCY_DEFAULT_TENANT; the running image
+    # reads SPRING_SECURITY_OAUTH2_AUTHORIZATIONSERVER_ISSUER / OAUTHY_TENANCY_*.
+    # Keys the chart ALREADY hardcodes CANNOT be re-declared here (Server-Side Apply
+    # rejects duplicate env keys — CLAUDE.md/SSO-1775); those must be fixed in the
+    # chart. The keys below are the NEW ones an overlay can legitimately add:
+    OAUTHY_TENANCY_PLATFORM_DOMAIN: ".127.0.0.1.nip.io"
+    OAUTHY_TENANCY_DEFAULT_TENANT_HOSTS: "hub.127.0.0.1.nip.io"
+    OAUTHY_IDENTITY_MEMBER_ISSUER_URI: "https://identity.127.0.0.1.nip.io"
+    OAUTHY_IDENTITY_MEMBER_REDIRECT_URI: "https://hub.127.0.0.1.nip.io/login/oauth2/code/identity-service"
+    OAUTHY_SECURITY_OUTBOUNDURLGUARD_ALLOWLIST: "identity.127.0.0.1.nip.io"
+    OAUTHY_FLYWAY_SEED_DEMO: "true"
+    # BLOCKED(SSO-2912): accepted as a WIF audience only once oathy V148/#3447 lands.
+    OAUTHY_FLYWAY_CONFORMANCE_WIF_AUDIENCE: "https://hub.127.0.0.1.nip.io"
+    # BLOCKED(SSO-2912): self-signed ingress CA trust for the hub->identity TLS
+    # back-channel is ABSENT from the packaged chart (no extraCaTrustSecret / ca-trust
+    # init container / JAVA_TOOL_OPTIONS truststore). Cannot be added from an overlay
+    # — needs a chart change (plan §7 #3). Without it the federation handshake fails.
+
+identity:
+  enabled: true
+  image:
+    name: identity-service    # ghcr name (chart default is thoryn-identity-service)
+  publicBaseUrl: "https://identity.127.0.0.1.nip.io"
+  env:
+    # Point identity's SMTP at the Mailpit sink so the verification email is captured.
+    SPRING_MAIL_HOST: "thoryn-mailpit"
+    SPRING_MAIL_PORT: "1025"
+    # BLOCKED(SSO-2912): the hub federation client (clients[0]) redirect-uri +
+    # per-tenant redirect-uri-pattern are staging-hardcoded in the image and must be
+    # overridden to the nip.io hosts (oathy values-local sets
+    # OAUTHY_IDENTITY_CLIENTS_0_*). Under a real `production` profile these may not
+    # exist at all — depends on plan §7 #5.
+
+productApi:
+  image:
+    name: product-api         # ghcr name (chart default is thoryn-product-api)
+  env:
+    OAUTHY_HUB_ISSUER: "https://hub.127.0.0.1.nip.io"
+    OAUTHY_TENANCY_PLATFORM_DOMAIN: ".127.0.0.1.nip.io"
+
+apiGateway:
+  image:
+    name: api-gateway         # ghcr name (chart default is thoryn-api-gateway)
+  env:
+    OAUTHY_TENANCY_PLATFORM_DOMAIN: ".127.0.0.1.nip.io"
+
+# Ingress at the nip.io hosts (the chart is ingress-native here).
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    enabled: true
+    # ingress-nginx serves its built-in self-signed cert; the Playwright runner uses
+    # ignoreHTTPSErrors. No clusterIssuer needed for the browser path.
+    clusterIssuer: ""
+    existingSecret: ""
+  hosts:
+    hub: hub.127.0.0.1.nip.io
+    identity: identity.127.0.0.1.nip.io
+    api: api.127.0.0.1.nip.io
+
+# Bundled infra = quick-start trial. NOTE the two hard blockers:
+database:
+  bundled: true
+  # BLOCKED(SSO-2912): bundled Postgres creates ONE database; the stack needs three
+  # (oauthy / product_api / identity). Chart change or external Postgres — plan §7 #2.
+  name: thoryn
+redis:
+  bundled: true
+openbao:
+  bundled: true
+  # BLOCKED(SSO-2912): bundled OpenBao provisions NO Transit signing key → the hub's
+  # VaultKeyBootstrap crashes → hub never Ready. Needs a signing-key init job in the
+  # chart — plan §7 #1. HARD BLOCKER.
+
+# NetworkPolicy templates aren't written in the chart yet (chart gaps.md #8); keep
+# off for the browsable trial so nothing silently blocks the in-cluster hops.
+networkPolicy:
+  enabled: false

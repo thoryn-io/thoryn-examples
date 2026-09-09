@@ -4,12 +4,33 @@ The public catalog of **recipes** for the [`thoryn`](https://thoryn.org) custome
 
 A recipe is a declarative example: it provisions a real, working configuration in **your own**
 Thoryn account using only supported product APIs, lets you see it work, and tears it down. The
-`thoryn examples` command applies a recipe for you and (soon) records a verifiable **receipt** of
-exactly what it configured.
+`thoryn examples` command applies a recipe for you and records a verifiable **receipt** of exactly
+what it configured.
 
-> Status: this repository is the authoring home for recipes. Today the `thoryn` CLI ships recipes
-> bundled; fetching signed recipes from this repo, and receipts, land in upcoming CLI phases
-> (tracked under Jira epic SSO-2871). Sections marked _(roadmap)_ describe that near-term direction.
+> Status: this repository is the authoring home for recipes. The released `thoryn` CLI ships recipes
+> **bundled** — `thoryn examples apply / verify / teardown / receipt` drive them today (they run in
+> nightly conformance against staging). Fetching signed recipes _from this repo_ at runtime is the
+> remaining roadmap item (tracked under Jira epic SSO-2871); sections marked _(roadmap)_ describe
+> that near-term direction.
+
+## Get the CLI
+
+The `thoryn` CLI is released from **[`thoryn-io/thoryn-cli`](https://github.com/thoryn-io/thoryn-cli)**
+(the customer-plane CLI was extracted there — SSO-2934/2935/2940; it is no longer built from the
+`oathy` monorepo). Install the latest release:
+
+```bash
+# Homebrew (macOS / Linux) — recommended
+brew tap thoryn-io/thoryn-cli
+brew install thoryn
+
+# Or grab a prebuilt binary / jar from the latest `cli-v*` GitHub Release
+#   https://github.com/thoryn-io/thoryn-cli/releases   (current: cli-v0.2.0)
+#   assets: per-OS native binaries, plus a portable `thoryn.jar` (needs Java 21)
+```
+
+CI downloads the portable `thoryn.jar` asset from the latest `cli-v*` release automatically (see
+**Conformance** below).
 
 ## Layout
 
@@ -44,16 +65,18 @@ the schema, each mapping to a supported product API. This is deliberate: a recip
 database seed, a demo endpoint, or any unsupported shortcut — it can only drive the product as it
 exists. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Run a recipe _(roadmap)_
+## Run a recipe
 
 ```bash
-thoryn examples catalog            # list recipes from this repo
-thoryn examples apply simple-signin
-thoryn examples verify             # re-check the live config matches the recipe
-thoryn examples teardown simple-signin
+thoryn examples apply simple-signin      # provision the recipe in your own account
+thoryn examples verify simple-signin     # re-check the live config matches the recipe
+thoryn examples receipt simple-signin    # print the receipt of what was configured
+thoryn examples teardown simple-signin   # remove everything the recipe created
 ```
 
-Today, run the bundled example with `thoryn examples setup simple-signin` → `run` → `teardown`.
+These commands drive the recipes **bundled** in the released CLI (that is exactly what nightly
+conformance exercises). `thoryn examples catalog` — listing / fetching signed recipes _from this
+repo_ at runtime — is the remaining roadmap item _(SSO-2871)_.
 
 ## Recipes
 
@@ -66,6 +89,10 @@ Today, run the bundled example with `thoryn examples setup simple-signin` → `r
 `.github/workflows/conformance.yml` (nightly + on demand) exercises a recipe **apply → verify →
 teardown** against staging with the real `thoryn` CLI, so a product change that breaks the recipe's
 product-API contract fails here — a red recipe blocks a release.
+
+**CLI source.** The workflow downloads the prebuilt `thoryn.jar` from the **latest `cli-v*` release of
+[`thoryn-io/thoryn-cli`](https://github.com/thoryn-io/thoryn-cli)** (which bundles the `ci-signin`
+recipe it applies). The CLI is no longer built from the `oathy` monorepo.
 
 **Auth (SSO-2942 — moved off Workload Identity Federation).** CI authenticates with a
 **customer-plane `client_credentials` API key** the operator mints themselves — the model proven in
@@ -84,7 +111,7 @@ that workspace's per-tenant issuer (`https://<slug>.hub.stg.thoryn.org`).
 Provision the workflow's config once (see **CI provisioning setup** below): the secrets
 `THORYN_API_KEY`, `OATHY_CLI_TOKEN` and the repo variable `CI_WORKSPACE_SLUG`.
 
-### Browser e2e (`example-e2e.yml`) — _scaffold, not yet activated_
+### Browser e2e (`example-e2e.yml`) — _live (nightly)_
 
 `.github/workflows/example-e2e.yml` (SSO-2909 / SSO-2912; auth cutover SSO-2942) goes one step
 further than conformance: it drives the `simple-signin` **browser journey** against staging — a
@@ -107,10 +134,12 @@ Mailpit's **local** API. Everything is torn down with the job. The SMTP hop over
 plaintext (the tunnel can't present a STARTTLS cert for its ephemeral host) — fine for a throwaway
 TEST mailbox.
 
-It is a **scaffold**: `workflow_dispatch` + nightly, and it fails at the sign-in step until the
-operator completes **CI provisioning setup** (below) and a first live run confirms the tenant
-self-service-signup entry, the BYO-SMTP→tunnel→Mailpit delivery, and the RP OIDC round-trip. See
-[`e2e/README.md`](e2e/README.md) for the full secret table and the live-confirm list.
+It runs **nightly** (and on `workflow_dispatch`) and now passes on `main` once the operator has
+completed **CI provisioning setup** (below). It still **fails at the sign-in step** in any fork/repo
+that has not provisioned the standing workspace, the API key, and the secrets/vars. Note the workflow
+file's own header still carries an older "scaffold — not yet activated" banner that predates the first
+green live runs; the pipeline itself is live. See [`e2e/README.md`](e2e/README.md) for the full secret
+table and the live-confirm list.
 
 ## CI provisioning setup _(operator-run, one-time)_
 
@@ -152,7 +181,7 @@ Then set the repo Actions config (Settings → Secrets and variables → Actions
 | Kind | Name | Value |
 |------|------|-------|
 | secret | `THORYN_API_KEY` | `<client-id>:<contents of ci-api-key.secret>` from step 3 |
-| secret | `OATHY_CLI_TOKEN` | a PAT / GitHub App token that can read `thoryn-io/oauthy` **releases** |
+| secret | `OATHY_CLI_TOKEN` | a PAT / GitHub App token that can read `thoryn-io/thoryn-cli` **releases** (to download the prebuilt `thoryn.jar`) |
 | secret | `NGROK_AUTHTOKEN` | free [ngrok](https://ngrok.com) authtoken (**example-e2e only**; skip if `SINK_TUNNEL=bore`) |
 | variable | `CI_WORKSPACE_SLUG` | the standing workspace slug (e.g. `ci-conformance`) |
 | variable | `SINK_TUNNEL` | `bore` to use the account-less tunnel instead of ngrok (optional) |
@@ -170,10 +199,10 @@ touch oauthy):
 - A tenant-scoped key **cannot create workspaces**, so conformance runs the workspace-less `ci-signin`
   recipe and example-e2e leaks one self-service test user per run into the standing workspace (no
   user-delete recipe action). Track/close these on **SSO-2943**.
-- **Release prerequisite:** `examples apply ci-signin` needs the `ci-signin` recipe **bundled in the
-  released `thoryn` CLI jar**. Today the `cli-v*` release (from oathy `tools/cli`) bundles only
-  `simple-signin` — `ci-signin` lives in `thoryn-io/thoryn-cli`. Both suites go green only once the
-  released CLI ships `ci-signin`. This story is thoryn-examples-only and does not make that CLI change.
+- **Release prerequisite — satisfied:** `examples apply ci-signin` needs the `ci-signin` recipe
+  **bundled in the released `thoryn` CLI jar**. The CLI now releases from
+  [`thoryn-io/thoryn-cli`](https://github.com/thoryn-io/thoryn-cli) (latest `cli-v0.2.0`), which
+  bundles `ci-signin`, and both suites are green nightly on `main`.
 
 ## Licence
 

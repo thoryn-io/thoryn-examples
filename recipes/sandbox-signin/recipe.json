@@ -1,0 +1,93 @@
+{
+  "apiVersion": "thoryn.io/examples/v1",
+  "id": "sandbox-signin",
+  "version": "1.0.0",
+  "summary": "Provision an ephemeral sandbox environment + a loopback OAuth client in it, then hard-delete both.",
+  "requires": {
+    "scopes": [
+      "tenant:environments.write",
+      "tenant:applications.write",
+      "tenant:applications.read"
+    ],
+    "minCliVersion": "0.9.0"
+  },
+  "params": [
+    {
+      "name": "workspaceSlug",
+      "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envSlug",
+      "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
+      "default": "sbx-signin-{{generate.slug8}}",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envName",
+      "prompt": "Display name for the ephemeral sandbox environment",
+      "default": "Sandbox Sign-in"
+    },
+    {
+      "name": "appName",
+      "prompt": "Display name for the ephemeral OAuth client",
+      "default": "Sandbox Sign-in App {{generate.slug8}}"
+    }
+  ],
+  "steps": [
+    {
+      "id": "env",
+      "action": "env.create",
+      "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.",
+      "with": {
+        "slug": "{{envSlug}}",
+        "name": "{{envName}}"
+      }
+    },
+    {
+      "id": "app",
+      "action": "applications.create",
+      "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.",
+      "with": {
+        "displayName": "{{appName}}",
+        "clientType": "public",
+        "grantTypes": [
+          "authorization_code"
+        ],
+        "scopes": [
+          "openid",
+          "profile",
+          "email"
+        ],
+        "redirectUris": [
+          "http://127.0.0.1/callback"
+        ],
+        "postLogoutRedirectUris": [
+          "http://127.0.0.1/"
+        ]
+      }
+    }
+  ],
+  "verify": [
+    {
+      "assert": "applications.get",
+      "id": "{{app.clientId}}",
+      "expect": {
+        "status": "active"
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "action": "applications.delete",
+      "id": "{{app.clientId}}"
+    },
+    {
+      "action": "env.delete",
+      "id": "{{env.id}}"
+    }
+  ],
+  "assets": {
+    "docs": "./README.md"
+  }
+}

@@ -1,0 +1,97 @@
+# SSO-2962 (epic SSO-2959) — the PER-EXAMPLE ephemeral-SANDBOX recipe.
+#
+# `sandbox-signin` gives every run its OWN isolation WITHOUT creating a new workspace. Instead of
+# minting a fresh workspace per run (which needs a machine scope a tenant admin can't delegate — the
+# SSO-2943 gap), it provisions a throwaway SANDBOX ENVIRONMENT inside a STANDING workspace the caller
+# already owns (the one their customer-plane API key is scoped to), provisions a public loopback OAuth
+# client INTO that sandbox, verifies the client is active, then hard-deletes BOTH the client and the
+# sandbox on teardown. Nothing standing is mutated.
+#
+# It reuses the connection contract's tenant-scoped machine client, which already holds
+# `tenant:environments.write/read` alongside the applications scopes — so no new credential and no
+# new trust are introduced.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter, SSO-2961):
+#   • env.create → product-api `POST /api/v1/environments` (`tenant:environments.write`). The created
+#     sandbox's id/slug are recorded on the run state, and the interpreter switches the "effective
+#     environment" to the new slug so EVERY subsequent step provisions INTO this sandbox (via the
+#     `X-Thoryn-Environment` header). The id/slug are addressable as `{{env.id}}` / `{{env.slug}}`.
+#   • applications.create → the loopback client is created in the sandbox (no `X-Thoryn-Environment`
+#     plumbing needed in the recipe — the interpreter targets the active sandbox automatically).
+#   • teardown env.delete → product-api `DELETE /api/v1/environments/{id}` (`tenant:environments.write`).
+#     It is SANDBOX-ONLY (the production plane 409s). The `id` here references `{{env.id}}`; the
+#     confirmation slug the interpreter sends as `X-Thoryn-Confirm` is the environment's OWN slug,
+#     which it resolves from the recorded run state (absent → 428, mismatch → 422). The hard-delete of
+#     the sandbox cascades the client too — deleting the client first (child-first) is belt-and-braces.
+apiVersion: thoryn.io/examples/v1
+id: sandbox-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox environment + a loopback OAuth client in it, then hard-delete both.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), plus applications.create (write) + the applications.get verify (read).
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+  minCliVersion: 0.9.0
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    # No default: this MUST name an existing workspace the caller owns. CI passes it via
+    # `--set workspaceSlug=<slug>`; the guided `apply` prompts for it. Used by the interpreter to scope
+    # the app/env deletes and to derive the tenant issuer for the receipt.
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    # {{generate.slug8}} expands to 8 random hex chars so each run's sandbox is uniquely named and
+    # never collides with a prior run's leftover.
+    default: "sbx-signin-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Sandbox Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Sandbox Sign-in App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      # SSO-2897 — OIDC RP-Initiated Logout: a loopback RP posts end_session with a
+      # post_logout_redirect_uri on this loopback host (port-agnostic, like redirectUris).
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown runs in declared (child-first) order: delete the app FIRST, then hard-delete the sandbox it
+# lives in. env.delete targets the sandbox created above via `{{env.id}}`; the interpreter supplies the
+# environment's OWN slug as the X-Thoryn-Confirm confirmation (resolved from the recorded run state), so
+# no slug is templated here. env.delete is SANDBOX-ONLY — it refuses the production plane (409).
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"
+
+assets:
+  docs: ./README.md

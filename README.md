@@ -83,6 +83,7 @@ repo_ at runtime — is the remaining roadmap item _(SSO-2871)_.
 | id | summary |
 |----|---------|
 | [`simple-signin`](recipes/simple-signin/) | Provision a workspace + app, then register & sign a user in to a protected page. |
+| [`sandbox-signin`](recipes/sandbox-signin/) | Provision an ephemeral **sandbox environment** + a loopback OAuth client in it, then hard-delete both — per-run isolation without a new workspace. |
 
 ## Conformance
 
@@ -141,6 +142,28 @@ file's own header still carries an older "scaffold — not yet activated" banner
 green live runs; the pipeline itself is live. See [`e2e/README.md`](e2e/README.md) for the full secret
 table and the live-confirm list.
 
+### Per-example sandbox e2e (`sandbox-e2e.yml`) — _scaffold (workflow_dispatch + nightly)_
+
+`.github/workflows/sandbox-e2e.yml` (SSO-2962, epic SSO-2959) gives each run its **own isolation**
+without a new tenant: it applies the [`sandbox-signin`](recipes/sandbox-signin/) recipe, which
+provisions a **fresh sandbox environment** inside the standing workspace (`env.create`), provisions a
+loopback OAuth client **into that sandbox** (`applications.create`), verifies the client is active
+(`applications.get`), then hard-deletes **both** the client and the sandbox (`applications.delete` →
+`env.delete`, in an `if: always()` step so a failed run still cleans up). This sidesteps the SSO-2943
+workspace-create gap by reusing the connection contract's tenant-scoped key, which already holds
+`tenant:environments.write`. Sign-in requests exactly `tenant:environments.write
+tenant:applications.write tenant:applications.read`.
+
+`env.delete` (product-api `DELETE /api/v1/environments/{id}`, SSO-2960) is **sandbox-only** and
+name-confirmation-guarded: the interpreter sends the environment's **own slug** as `X-Thoryn-Confirm`
+(resolved from the run state it recorded at `env.create`; 428 absent / 422 mismatch), so the recipe
+teardown references only `{{env.id}}`.
+
+> **Scaffold.** A first LIVE `workflow_dispatch` run is a follow-up: it needs the thoryn CLI with the
+> `env.create` / `env.delete` recipe actions published as a `cli-v*` release (**cli-v0.3.5**) **plus**
+> the same standing workspace + API key + repo config as the other suites (below). Until then the
+> workflow is `workflow_dispatch`-only and fails at the sign-in step.
+
 ## CI provisioning setup _(operator-run, one-time)_
 
 Both CI suites authenticate as a real customer with a tenant-scoped `client_credentials` API key
@@ -158,9 +181,10 @@ thoryn workspace create --slug ci-conformance --display-name "CI conformance"
 # 2) Enter it, so the API key is registered UNDER that tenant (its `tnt`).
 thoryn workspace switch ci-conformance
 
-# 3) Mint the CUSTOMER-PLANE client_credentials API key, scoped to the UNION both suites need:
+# 3) Mint the CUSTOMER-PLANE client_credentials API key, scoped to the UNION all suites need:
 #    conformance → tenant:applications.write + tenant:applications.read;
-#    example-e2e → the same + tenant:email.write (to point the workspace BYO-SMTP at the sink).
+#    example-e2e  → the same + tenant:email.write (to point the workspace BYO-SMTP at the sink);
+#    sandbox-e2e  → the same + tenant:environments.write (create/delete the per-run sandbox).
 #    The secret is written to a FILE (never printed to a log/pipe). --scope is REPEATABLE.
 #    NOTE (SSO-2943 friction): `clients create` REQUIRES --redirect-uri even for a machine
 #    (client_credentials) client that never redirects — pass a throwaway.
@@ -171,6 +195,7 @@ thoryn clients create \
   --scope tenant:applications.write \
   --scope tenant:applications.read \
   --scope tenant:email.write \
+  --scope tenant:environments.write \
   --redirect-uri https://ci.invalid/unused \
   --secret-file ci-api-key.secret
 # → prints the client-id; the secret is in ci-api-key.secret.

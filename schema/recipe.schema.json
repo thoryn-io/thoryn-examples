@@ -80,7 +80,10 @@
               "tenant.configureEmailProvider"
             ]
           },
-          "with": { "type": "object" },
+          "with": {
+            "description": "Per-action inputs, forwarded to the supported product API. For `applications.create` (register-app) these are `displayName`, `clientType`, `grantTypes`, `scopes`, `redirectUris` (array of redirect URI strings) and the optional `postLogoutRedirectUris` (array of OIDC RP-Initiated-Logout post-logout redirect URI strings, same shape as `redirectUris`; SSO-2897). For `identity.registerUser` (SSO-2907 — provision a sign-in-able tenant user via product-api `POST /api/v1/users`, `tenant:users.write`) these are `email`, `password` (sets an initial credential so the user can sign in immediately), the optional `givenName` / `familyName` / `locale`, and `emailVerified` (set `true` to mark the account verified without an email round-trip). The created user's `id` and `email` are addressable as `{{<step id>.id}}` / `{{<step id>.email}}` in later steps. For `tenant.configureEmailProvider` (SSO-2917 — configure the workspace's bring-your-own SMTP transport via product-api `PUT /api/v1/email-provider`, `tenant:email.write`) these are the merge-upsert config fields `providerType`, `enabled`, `smtpHost`, `smtpPort`, `smtpUsername`, `smtpPassword` (write-only; mark the param `secret:true` so it is never echoed or written to a receipt), `transportSecurity`, `fromAddress`, `fromName`, `replyTo`; the resulting `providerType` / `configVersion` / `enabled` are addressable as `{{<step id>.providerType}}` / `{{<step id>.configVersion}}` / `{{<step id>.enabled}}`. Secret-bearing machine-client provisioning is NOT an example-recipe action — it is the dedicated operator command `thoryn provision ci-identity` (SSO-2952), so a DATA recipe can never mint a credential and every recipe receipt stays secret-free.",
+            "type": "object"
+          },
           "description": { "type": "string" }
         }
       }
@@ -102,14 +105,14 @@
       }
     },
     "teardown": {
-      "description": "Best-effort removal of what the steps created (reverse order).",
+      "description": "Best-effort removal of what the steps created, executed in declared order (child-first: delete the child resources, then the container they live in — the app before the workspace it lives in (SSO-2901), or a resource before the `env.delete` that hard-deletes the ephemeral sandbox it was provisioned into (SSO-2961)). `env.delete` (SSO-2960 — product-api `DELETE /api/v1/environments/{id}`, `tenant:environments.write`) targets the environment created by an `env.create` step: its `id` is the env id (reference it as `{{<env-create step id>.id}}`, which the interpreter records on the run state so a later `teardown` invocation can resolve it), and the confirmation slug the interpreter sends as `X-Thoryn-Confirm` is the environment's OWN slug (absent → 428, mismatch → 422). It refuses the production plane (409 `cannot_delete_production_environment`); a cross-tenant/unknown id is 404.",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
         "properties": {
-          "action": { "enum": ["applications.delete", "federation.delete", "hub.deleteWorkspace"] },
+          "action": { "enum": ["applications.delete", "federation.delete", "env.delete", "hub.deleteWorkspace"] },
           "id": { "type": "string" },
           "with": { "type": "object" }
         }

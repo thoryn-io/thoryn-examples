@@ -1,0 +1,127 @@
+name: sandbox-e2e
+
+# SSO-2962 (epic SSO-2959) — the PER-EXAMPLE sandbox-environment e2e. Each run provisions its OWN
+# throwaway sandbox environment inside the STANDING workspace, provisions an OAuth client into that
+# sandbox, verifies the client is active, then hard-deletes BOTH the client and the sandbox. This
+# gives per-example isolation WITHOUT creating a new tenant (which a tenant-scoped API key can't do —
+# the SSO-2943 workspace-create gap), reusing the connection contract's machine client, which already
+# holds tenant:environments.write/read alongside the applications scopes.
+#
+# AUTH (same model as conformance.yml / example-e2e.yml, SSO-2942): a CUSTOMER-PLANE
+# `client_credentials` API KEY the operator mints themselves. No GitHub OIDC, no `id-token: write`.
+# The key is TENANT-SCOPED (bound to the standing workspace via its `tnt` claim) and authenticates at
+# that workspace's PER-TENANT issuer (`https://<slug>.hub.stg.thoryn.org`). The hub grants a
+# client-credentials token ONLY the scopes explicitly requested, so sign-in requests EXACTLY this
+# suite's set: tenant:environments.write (create/delete the sandbox) + tenant:applications.write +
+# tenant:applications.read (create/verify/delete the client).
+#
+# CLI SOURCE — the prebuilt `thoryn.jar` is downloaded from the LATEST `cli-v*` release of
+# thoryn-io/thoryn-cli, which bundles the recipe interpreter that implements the `env.create` /
+# `env.delete` recipe actions this recipe uses (cli-v0.3.5+).
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │  SCAFFOLD — a first LIVE run is a follow-up. It needs BOTH (a) the CLI with    │
+# │  the env.create / env.delete recipe actions published as a cli-v* release      │
+# │  (cli-v0.3.5, releasing now) AND (b) the standing workspace + API key + repo    │
+# │  secrets/vars below. Until then this workflow is workflow_dispatch-only and     │
+# │  FAILS at the sign-in step. Do NOT treat a green schema check as a green run.   │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Required repo config (provision once — same as conformance.yml, see README "CI provisioning setup"):
+#   secret  THORYN_API_KEY     — <client-id>:<client-secret> of a client-credentials key scoped to the
+#                                standing workspace, granted tenant:environments.write +
+#                                tenant:applications.write + tenant:applications.read. NEVER a literal
+#                                (this repo is public).
+#   secret  OATHY_CLI_TOKEN    — a token that can read thoryn-io/thoryn-cli RELEASES, to download the
+#                                prebuilt thoryn CLI jar (published on a `cli-v*` tag).
+#   var     CI_WORKSPACE_SLUG  — slug of the STANDING workspace the API key is scoped to.
+
+on:
+  schedule:
+    - cron: "5 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Per-example sandbox recipe id to run (default: sandbox-signin)"
+        required: false
+        default: sandbox-signin
+
+permissions:
+  contents: read # checkout only — no id-token: the API-key flow needs no GitHub OIDC
+
+env:
+  THORYN_HUB: https://hub.stg.thoryn.org
+  THORYN_GATEWAY: https://api.stg.thoryn.org
+  # The STANDING workspace the API key is scoped to (its `tnt`). Set as a repo variable so the
+  # operator owns it; the per-tenant issuer is derived from it below.
+  STANDING_WORKSPACE_SLUG: ${{ vars.CI_WORKSPACE_SLUG }}
+  # The runner is headless with no OS keyring → the CLI's default token store is unavailable and it
+  # refuses to silently write plaintext. Sanctioned CI opt-in (same as conformance.yml): the token is
+  # short-lived (client-credentials, no refresh), runner ephemeral.
+  THORYN_CI_PLAINTEXT_TOKENS: "1"
+
+jobs:
+  sandbox-e2e:
+    name: sandbox-e2e (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RECIPE: ${{ github.event.inputs.recipe || 'sandbox-signin' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download the prebuilt thoryn CLI (latest cli-v* release)
+        env:
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli — run its release workflow first"; exit 1; }
+          echo "Using CLI release $tag"
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
+
+      - name: Sign in (client-credentials API key at the standing workspace issuer)
+        env:
+          # <client-id>:<client-secret> — read from the env by the CLI, never on argv or in logs.
+          THORYN_API_KEY: ${{ secrets.THORYN_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${THORYN_API_KEY:-}" ] || { echo "::error::THORYN_API_KEY is not set — mint a client-credentials key scoped to the standing workspace (see README 'CI provisioning setup')"; exit 1; }
+          [ -n "${STANDING_WORKSPACE_SLUG:-}" ] || { echo "::error::repo variable CI_WORKSPACE_SLUG is not set — the standing workspace slug the key is scoped to"; exit 1; }
+          # The key is registered IN the standing workspace's tenant, so it authenticates at the
+          # PER-TENANT issuer (NOT the default hub issuer). The gateway is the shared customer-plane
+          # host for every tenant. Both are stamped onto the session (SSO-2827) so the later
+          # `examples` commands need no host flags.
+          issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
+          echo "Signing in at $issuer (gateway $THORYN_GATEWAY)."
+          # Request EXACTLY the scopes sandbox-signin needs: environments.write (create/delete the
+          # sandbox) + applications.write (create/delete the client) + applications.read (the
+          # post-create applications.get verify). The hub mints a token with only these — an omitted
+          # scope 403s that call.
+          java -jar thoryn.jar login --client-credentials \
+            --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
+            --scope "tenant:environments.write tenant:applications.write tenant:applications.read"
+          java -jar thoryn.jar login --status
+
+      - name: Apply the per-example sandbox recipe (env.create → client) and verify
+        run: |
+          set -euo pipefail
+          # `--set workspaceSlug=<standing-slug>` names the standing workspace the sandbox + client are
+          # created in (the one the API key is scoped to). The recipe's env.create step provisions a
+          # FRESH sandbox per run; applications.create lands inside it. Hosts come from the stamped session.
+          java -jar thoryn.jar examples apply "$RECIPE" --set "workspaceSlug=${STANDING_WORKSPACE_SLUG}" --yes
+          java -jar thoryn.jar examples verify "$RECIPE"
+
+      - name: Teardown the client + sandbox (always — even on failure)
+        if: always()
+        run: |
+          set -uo pipefail
+          # Child-first: applications.delete (the client) then env.delete (the sandbox, confirmed with
+          # its own slug the interpreter recorded at env.create). Best-effort so a failed run still
+          # deletes the ephemeral sandbox + client rather than leaking them into the standing workspace.
+          java -jar thoryn.jar examples teardown "$RECIPE" || true

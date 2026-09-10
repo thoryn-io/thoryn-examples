@@ -83,7 +83,7 @@ repo_ at runtime — is the remaining roadmap item _(SSO-2871)_.
 | id | summary |
 |----|---------|
 | [`simple-signin`](recipes/simple-signin/) | Provision a workspace + app, then register & sign a user in to a protected page. |
-| [`sandbox-signin`](recipes/sandbox-signin/) | Provision an ephemeral **sandbox environment** + a loopback OAuth client in it, then hard-delete both — per-run isolation without a new workspace. |
+| [`sandbox-signin`](recipes/sandbox-signin/) | Provision an ephemeral **sandbox environment** + a loopback OAuth client + a user in it, **sign in end to end** through the recipe's loopback RP, then hard-delete both — per-run isolation without a new workspace (setup → run → teardown). |
 
 ## Conformance
 
@@ -142,27 +142,38 @@ file's own header still carries an older "scaffold — not yet activated" banner
 green live runs; the pipeline itself is live. See [`e2e/README.md`](e2e/README.md) for the full secret
 table and the live-confirm list.
 
-### Per-example sandbox e2e (`sandbox-e2e.yml`) — _scaffold (workflow_dispatch + nightly)_
+### Per-example sandbox browser e2e (`sandbox-e2e.yml`) — _scaffold (workflow_dispatch + nightly)_
 
-`.github/workflows/sandbox-e2e.yml` (SSO-2962, epic SSO-2959) gives each run its **own isolation**
-without a new tenant: it applies the [`sandbox-signin`](recipes/sandbox-signin/) recipe, which
-provisions a **fresh sandbox environment** inside the standing workspace (`env.create`), provisions a
-loopback OAuth client **into that sandbox** (`applications.create`), verifies the client is active
-(`applications.get`), then hard-deletes **both** the client and the sandbox (`applications.delete` →
-`env.delete`, in an `if: always()` step so a failed run still cleans up). This sidesteps the SSO-2943
-workspace-create gap by reusing the connection contract's tenant-scoped key, which already holds
-`tenant:environments.write`. Sign-in requests exactly `tenant:environments.write
-tenant:applications.write tenant:applications.read`.
+`.github/workflows/sandbox-e2e.yml` (SSO-2969, epic SSO-2959) gives each run its **own isolation**
+without a new tenant, and drives the [`sandbox-signin`](recipes/sandbox-signin/) recipe as a full
+**setup → run → teardown** browser journey. It provisions a **fresh sandbox environment** inside the
+standing workspace (`env.create`), provisions a loopback OAuth client **and a sign-in-able user** into
+that sandbox (`applications.create` + `identity.registerUser`), verifies the client is active
+(`applications.get`), then drives the **same Mailpit + tunnel + Playwright rig as `example-e2e.yml`**
+(a real self-service sign-up whose verification email is captured from an ephemeral in-job Mailpit sink
+via the standing workspace's BYO-SMTP) through the recipe's loopback RP to `/protected` — and finally
+hard-deletes **both** the client and the sandbox (`applications.delete` → `env.delete`, in an
+`if: always()` step so a failed run still cleans up). This sidesteps the SSO-2943 workspace-create gap
+by reusing the connection contract's tenant-scoped key, which already holds `tenant:environments.write`.
+Sign-in requests exactly `tenant:environments.write tenant:applications.write tenant:applications.read
+tenant:users.write tenant:email.write`.
+
+Because `sandbox-signin` is **not bundled** in the CLI, the workflow runs `thoryn examples update` to
+fetch it from this repo's **signed catalog** (SSO-2968) before `apply`. It shares `example-e2e.yml`'s
+concurrency group so the two suites never race on the shared standing workspace's BYO-SMTP config.
 
 `env.delete` (product-api `DELETE /api/v1/environments/{id}`, SSO-2960) is **sandbox-only** and
 name-confirmation-guarded: the interpreter sends the environment's **own slug** as `X-Thoryn-Confirm`
 (resolved from the run state it recorded at `env.create`; 428 absent / 422 mismatch), so the recipe
 teardown references only `{{env.id}}`.
 
-> **Scaffold.** A first LIVE `workflow_dispatch` run is a follow-up: it needs the thoryn CLI with the
-> `env.create` / `env.delete` recipe actions published as a `cli-v*` release (**cli-v0.3.5**) **plus**
-> the same standing workspace + API key + repo config as the other suites (below). Until then the
-> workflow is `workflow_dispatch`-only and fails at the sign-in step.
+> **Scaffold — the FIRST LIVE run is the validation.** It needs (a) a `cli-v0.3.7`+ release (fetched
+> recipes + `env.create` / `env.delete` + `identity.registerUser`), (b) a **signed catalog release of
+> this repo that includes `sandbox-signin`** (the operator tags it), and (c) the same standing
+> workspace + API key + repo config as the other suites (below). Several sandbox capabilities are
+> **unproven** and marked `NOTE(SSO-2969)` in the workflow + recipe: whether `identity.registerUser`,
+> BYO-SMTP, and the hosted self-service sign-up are per-environment, and how the sandbox **per-env
+> issuer** resolves. Until then the workflow is `workflow_dispatch`-only and fails early.
 
 ## CI provisioning setup _(operator-run, one-time)_
 
@@ -184,7 +195,8 @@ thoryn workspace switch ci-conformance
 # 3) Mint the CUSTOMER-PLANE client_credentials API key, scoped to the UNION all suites need:
 #    conformance → tenant:applications.write + tenant:applications.read;
 #    example-e2e  → the same + tenant:email.write (to point the workspace BYO-SMTP at the sink);
-#    sandbox-e2e  → the same + tenant:environments.write (create/delete the per-run sandbox).
+#    sandbox-e2e  → the same + tenant:environments.write (create/delete the per-run sandbox)
+#                   + tenant:users.write (identity.registerUser — the sandbox sign-in-able user).
 #    The secret is written to a FILE (never printed to a log/pipe). --scope is REPEATABLE.
 #    NOTE (SSO-2943 friction): `clients create` REQUIRES --redirect-uri even for a machine
 #    (client_credentials) client that never redirects — pass a throwaway.
@@ -196,6 +208,7 @@ thoryn clients create \
   --scope tenant:applications.read \
   --scope tenant:email.write \
   --scope tenant:environments.write \
+  --scope tenant:users.write \
   --redirect-uri https://ci.invalid/unused \
   --secret-file ci-api-key.secret
 # → prints the client-id; the secret is in ci-api-key.secret.

@@ -1,15 +1,16 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
   "id": "sandbox-signin",
-  "version": "1.0.0",
-  "summary": "Provision an ephemeral sandbox environment + a loopback OAuth client in it, then hard-delete both.",
+  "version": "1.1.0",
+  "summary": "Provision an ephemeral sandbox environment + a loopback OAuth client + a user in it, sign in, then hard-delete both.",
   "requires": {
     "scopes": [
       "tenant:environments.write",
       "tenant:applications.write",
-      "tenant:applications.read"
+      "tenant:applications.read",
+      "tenant:users.write"
     ],
-    "minCliVersion": "0.9.0"
+    "minCliVersion": "0.3.7"
   },
   "params": [
     {
@@ -66,6 +67,18 @@
           "http://127.0.0.1/"
         ]
       }
+    },
+    {
+      "id": "user",
+      "action": "identity.registerUser",
+      "description": "Register a verified, sign-in-able user IN the sandbox so `examples run` can sign in end to end (SSO-2908).",
+      "with": {
+        "email": "{{envSlug}}@example.com",
+        "password": "Example-Signin-Pw1!",
+        "givenName": "Demo",
+        "familyName": "User",
+        "emailVerified": true
+      }
     }
   ],
   "verify": [
@@ -88,6 +101,7 @@
     }
   ],
   "assets": {
+    "rp": "./apps/loopback-rp",
     "docs": "./README.md"
   }
 }

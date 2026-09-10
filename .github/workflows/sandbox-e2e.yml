@@ -313,24 +313,24 @@ jobs:
           client="$(jq -r '[.resources[]? | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
           [ -n "$client" ] || { echo "::error::could not parse the ephemeral clientId from the receipt"; cat /tmp/receipt.json; exit 1; }
 
-          # NOTE(SSO-2969): the sandbox environment's PER-ENV issuer resolution is UNPROVEN. We try
-          # several plausible receipt locations first (the receipt schema lives in thoryn-cli and may
-          # not yet carry a per-env issuer), then FALL BACK to deriving it from the sandbox slug we set.
-          # The first live run must confirm which is correct — whether a sandbox env has its OWN issuer
-          # subdomain (`https://<envSlug>.hub.stg.thoryn.org`) or shares the workspace issuer with the
-          # environment applied via `X-Thoryn-Environment`. Do NOT hardcode a guess as if proven.
+          # SSO-2969: the sandbox environment's PER-ENV issuer is the WORKSPACE issuer with a
+          # `/{env-slug}` PATH SUFFIX — `https://<workspace>.hub.stg.thoryn.org/<env-slug>` — NOT a
+          # per-env subdomain. Confirmed against the hub: SecurityConfig projects a sandbox token's
+          # `iss` to `<live-issuer>/{env-slug}` (SSO-2411), and the client created in the sandbox
+          # carries `environment_slug` so the authorize flow scopes to that env. (The first live run
+          # disproved the earlier subdomain guess — `<env-slug>.hub…` served no hosted login.)
+          # Prefer an explicit issuer on the receipt if the CLI ever adds one; else derive the path form.
           issuer="$(jq -r '
             ( [ .resources[]? | select(.kind=="environment") | (.issuer? // .issuerUri? // .issuer_url?) ] | map(select(. != null)) | first )
             // .environment?.issuer?
-            // .issuer?
             // empty' /tmp/receipt.json)"
           if [ -n "$issuer" ] && [ "$issuer" != "null" ]; then
             echo "Resolved the sandbox per-env issuer from the receipt: $issuer"
           else
             env_slug_from_receipt="$(jq -r '[ .resources[]? | select(.kind=="environment") | (.slug? // .name?) ] | map(select(. != null)) | first // ""' /tmp/receipt.json)"
             [ -n "$env_slug_from_receipt" ] && env_slug="$env_slug_from_receipt"
-            issuer="https://${env_slug}.hub.stg.thoryn.org"
-            echo "::warning::per-env issuer not present in the receipt — DERIVED '$issuer' from the sandbox slug '$env_slug' (NOTE(SSO-2969): first live run must confirm the sandbox per-env issuer shape)"
+            issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org/${env_slug}"
+            echo "Derived the sandbox per-env issuer (workspace issuer + /{env-slug} path, per SecurityConfig SSO-2411): $issuer"
           fi
 
           {

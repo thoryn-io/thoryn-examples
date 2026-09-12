@@ -32,14 +32,14 @@ Override the look from the command line (defaults: `primaryColor=#7c3aed`, `logi
 
 ```bash
 thoryn examples setup branded-signin --set workspaceSlug=<your-ws> \
-  --set primaryColor=#0ea5e9 --set loginTheme=dark
+  --set primaryColor=#0369a1 --set loginTheme=dark
 ```
 
 The same thing imperatively, without a recipe, against the selected environment:
 
 ```bash
 thoryn env use <sandbox-slug>
-thoryn branding set --primary-color '#0ea5e9' --theme dark --logo-url https://example.com/logo.svg
+thoryn branding set --primary-color '#0369a1' --theme dark --logo-url https://example.com/logo.svg
 thoryn branding get
 ```
 

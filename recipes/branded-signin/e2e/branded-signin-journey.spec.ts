@@ -154,7 +154,7 @@ test.describe("branded-signin example — fresh sandbox env with a BRANDED hoste
           "#7c3aed",
         );
 
-        // SSO-3038: the recipe also set an allowlisted CSS-variable (--thoryn-accent #0ea5e9). Prove
+        // SSO-3038: the recipe also set an allowlisted CSS-variable (--thoryn-accent #0369a1). Prove
         // the CSS-variable map renders too — the extensible styling surface beyond the fixed fields.
         const accent = (
           await page.evaluate(() =>
@@ -164,7 +164,7 @@ test.describe("branded-signin example — fresh sandbox env with a BRANDED hoste
           .trim()
           .toLowerCase();
         expect(accent, "the sandbox hosted login renders the recipe-configured --thoryn-accent CSS variable").toBe(
-          "#0ea5e9",
+          "#0369a1",
         );
       });
 

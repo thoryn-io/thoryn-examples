@@ -91,7 +91,7 @@
         "borderRadiusPx": 10,
         "theme": "{{loginTheme}}",
         "cssVariables": {
-          "--thoryn-accent": "#0ea5e9",
+          "--thoryn-accent": "#0369a1",
           "--thoryn-font-family": "Georgia, serif"
         }
       }

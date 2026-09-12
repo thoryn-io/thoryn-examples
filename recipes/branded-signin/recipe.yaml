@@ -98,10 +98,12 @@ steps:
       borderRadiusPx: 10
       theme: "{{loginTheme}}"
       # SSO-3038: the allowlisted --thoryn-* CSS-variable map — the extensible styling surface on top
-      # of the fixed fields. A distinct accent (cyan, != the primary) so it's unmistakable and the e2e
-      # can assert it renders; a custom font. Server-validated (hex + safe font-stack) + contrast-guarded.
+      # of the fixed fields. A distinct deep-cyan accent (!= the primary) so it's unmistakable and the
+      # e2e can assert it renders; a custom font. Server-validated (hex + safe font-stack) + contrast-
+      # guarded: --thoryn-accent colours links (text), so it must clear WCAG AA 4.5:1 on the #ffffff
+      # background — #0369a1 is 5.93:1 (a lighter cyan like #0ea5e9 is 2.77:1 and the server REJECTS it).
       cssVariables:
-        "--thoryn-accent": "#0ea5e9"
+        "--thoryn-accent": "#0369a1"
         "--thoryn-font-family": "Georgia, serif"
 
   - id: user

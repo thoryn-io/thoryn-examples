@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-12T16:23:23.414Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-09-12T17:03:11.171Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,9 +20,44 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Password sign-in (no second factor yet) reaches the RP protected page | ⏳ not yet run |
-| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ⏳ not yet run |
-| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ⏳ not yet run |
+| 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
+| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ❌ failed |
+| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ⏭️ skipped |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 6.6s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 7.1s |
+
+## Diagnostics
+
+```
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP enrol should return 2xx (401)
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+Received: [31mfalse[39m
+[error path: a wrong TOTP code is rejected at the challenge] Error: TOTP enrol should return 2xx (401)
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+Received: [31mfalse[39m
+```
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34706971804-1 |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34706971804)
+- [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -8,13 +8,13 @@
 **Runs in CI via:** `.github/workflows/sandbox-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T12:32:23.189Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-12T12:44:27.719Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
 **Per-run sandbox: sign up → verify email → sign in against the sandbox per-env issuer (Path B)**
 
-Drives the `sandbox-signin` recipe's loopback relying party against the staging SaaS in a real browser, pointed at a FRESH per-run SANDBOX ENVIRONMENT (env.create) inside the standing workspace rather than a new workspace. A brand-new end user signs up on the sandbox's hosted login; the verification email is captured from an ephemeral in-job Mailpit sink via the standing workspace's BYO-SMTP; the captured link verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back to the RP's protected page. The whole sandbox (client + user) is hard-deleted on teardown. The headline flow mirrors the recipe README's sandbox test-inbox round trip (`thoryn env test-emails`); this browser harness captures the same genuinely-sent email from the CI Mailpit sink instead of the CLI inbox, because the runner drives the hosted UI, not the CLI.
+Drives the `sandbox-signin` recipe's loopback relying party against the staging SaaS in a real browser, pointed at a FRESH per-run SANDBOX ENVIRONMENT (env.create) inside the standing workspace rather than a new workspace. A brand-new end user signs up on the sandbox's hosted login; because a sandbox SUPPRESSES real transactional email by design (SSO-2449) and captures it into a per-env inbox (SSO-3026), the verification email is read from that sandbox test-inbox via the CLI (`thoryn env test-emails`); the captured link verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back to the RP's protected page. The whole sandbox (client + user) is hard-deleted on teardown. This is the recipe README's headline sandbox test-inbox round trip — a genuine, non-faked capture of the real email through the product's own read surface (simple-signin, a workspace where email really sends, stays on the Mailpit path).
 
 ## Steps / assertions
 
@@ -22,7 +22,7 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 |---|------|--------|
 | 1 | RP → “Sign in with Thoryn” → authorize redirects to the SANDBOX per-env issuer, hosted login renders | ✅ passed |
 | 2 | Follow the self-service sign-up path and register a brand-new end user in the sandbox | ✅ passed |
-| 3 | Capture the REAL verification email from the in-job Mailpit sink | ✅ passed |
+| 3 | Capture the REAL verification email from the sandbox test-inbox (thoryn env test-emails) | ✅ passed |
 | 4 | Follow the captured verify-email link → “Your email is verified” | ✅ passed |
 | 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ✅ passed |
 
@@ -32,19 +32,19 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer | ✅ passed | 13.1s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.9s |
+| full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer | ✅ passed | 13.4s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.8s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/sbx-signin-34693884817-1 |
+| Issuer | examples.hub.stg.thoryn.org/sbx-signin-34694434892-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34693884817)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34694434892)
 - [Playwright HTML report (CI artifact)](the `sandbox-e2e-playwright-report` artifact on the CI run)
 

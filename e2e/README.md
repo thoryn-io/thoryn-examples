@@ -167,10 +167,13 @@ it has E2E coverage, what behaviour is tested, and the most recent result. It is
   per-step table, timings, diagnostics, the target environment (non-secret), and a CI
   run link. Only the recipe project that actually ran is touched; `--list` never writes.
 
-> Follow-up: CI uploads the regenerated `E2E_RESULTS.md` as a run artifact but does not
-> yet commit it back to the repo, so the committed copy stays at its seeded/last-committed
-> state until someone commits a fresh run. A commit-back step (or a nightly bot) is the
-> natural next increment.
+- On the **default branch** (the `example-e2e` / `sandbox-e2e` workflows fire nightly and on
+  `workflow_dispatch`, both on `main`), a **commit-back step** pushes the regenerated
+  `recipes/<id>/E2E_RESULTS.md` back to `main` (SSO-2969), so the committed copy browsers see is
+  always the latest run — pass or fail. It runs `always()` (records failures too), no-ops when the
+  file is unchanged, rebases onto `main` first (so the two recipes' workflows don't collide), and
+  tags the commit `[skip ci]` so it never re-triggers a run. The Playwright report stays a run
+  artifact (14-day retention); only the small `E2E_RESULTS.md` is committed.
 
 ## Config a maintainer must create to activate
 

@@ -70,7 +70,7 @@ on:
     - cron: "41 4 * * *" # nightly, offset from conformance.yml (23 4)
 
 permissions:
-  contents: read # checkout only — no id-token: the API-key flow needs no GitHub OIDC
+  contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC
 
 concurrency:
   # Serialize: never let two runs race on the shared standing workspace's BYO-SMTP config.
@@ -334,6 +334,28 @@ jobs:
             recipes/simple-signin/E2E_RESULTS.md
           if-no-files-found: warn
           retention-days: 14
+
+      # SSO-2969 — commit the regenerated per-recipe E2E_RESULTS.md back, so browsing the recipe
+      # shows the LATEST result (pass OR fail), not just the seeded placeholder. Runs on the
+      # default branch only (this workflow fires on schedule / workflow_dispatch, both on main),
+      # `always()` so failures are recorded too, and no-ops when the file is unchanged. `[skip ci]`
+      # keeps it from re-triggering a workflow. `contents: write` (above) authorizes the push.
+      - name: Commit back the generated E2E_RESULTS.md
+        if: always() && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          FILE=recipes/simple-signin/E2E_RESULTS.md
+          if git diff --quiet -- "$FILE"; then
+            echo "E2E_RESULTS.md unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "thoryn-ci[bot]"
+          git config user.email "ci@thoryn.io"
+          git add "$FILE"
+          git commit -m "chore(e2e): update simple-signin E2E_RESULTS.md from CI run ${{ github.run_id }} [skip ci]"
+          # Rebase onto the latest main so the sibling recipe's commit-back can't cause a non-fast-forward.
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
 
       # ── Teardown — always, even on failure ───────────────────────────────────
       # The container + tunnel would die with the runner regardless; killing them explicitly is tidy.

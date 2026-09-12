@@ -1,5 +1,5 @@
 /**
- * SSO-2909 — the simple-signin example, driven end-to-end in a real browser against
+ * SSO-2909 — the `simple-signin` example, driven end-to-end in a real browser against
  * the STAGING SaaS, INCLUDING a genuinely-sent verification email captured from an
  * EPHEMERAL, in-job Mailpit sink. This is Path B (real self-service sign-up +
  * email capture): a brand-new end user registers on the provisioned workspace, which
@@ -8,7 +8,13 @@
  * on localhost). The recipe's own identity.registerUser step pre-verifies
  * WITHOUT an email — that is a convenience for the conformance run, not this path.
  *
- *   1. Open the REAL loopback RP (recipes/simple-signin/apps/loopback-rp/server.js):
+ * This spec is COLOCATED with the recipe it validates (recipes/simple-signin/e2e/).
+ * It imports the SHARED harness (config, Mailpit capture) from the repo-root `e2e/`
+ * tree — the one reusable home both recipes' specs import, so there is no duplicated
+ * setup. The step titles come from ./scenario.mjs (the single source the generated
+ * E2E_RESULTS.md "Steps" list uses too).
+ *
+ *   1. Open the REAL loopback RP (../apps/loopback-rp/server.js):
  *      GET / → "Sign in with Thoryn" → RP 302s to {workspace-issuer}/oauth2/authorize
  *      → the hub federates to the tenant's identity → its hosted login renders.
  *   2. From the hosted login, follow the self-service "Sign up / Create account"
@@ -32,8 +38,9 @@
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
 import { test, expect, type Page } from "@playwright/test";
-import { config } from "../lib/config";
-import { findVerificationLink } from "../lib/mailbox";
+import { config } from "../../../e2e/lib/config";
+import { findVerificationLink } from "../../../e2e/lib/mailbox";
+import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
 function uniqueEmail(): string {
@@ -89,65 +96,75 @@ test.describe("simple-signin example — self-service sign-up → verify email �
 
     try {
       // 1) RP → "Sign in with Thoryn" → the workspace hub → the hosted login form.
-      await startSignInFromRp(page);
-      await expect(
-        page.locator("#passwordForm"),
-        "the RP sign-in reaches the identity hosted login via the workspace hub",
-      ).toBeVisible();
+      await test.step(STEPS.hostedLogin, async () => {
+        await startSignInFromRp(page);
+        await expect(
+          page.locator("#passwordForm"),
+          "the RP sign-in reaches the identity hosted login via the workspace hub",
+        ).toBeVisible();
+      });
 
       // 2) Follow the self-service sign-up path and register a brand-new end user.
-      await gotoRegisterFromLogin(page); // LIVE-CONFIRM (a)
-      await submitRegistration(page, email);
-      await expect(
-        page.getByRole("heading", { name: /check your email/i }),
-        "self-service sign-up hands off to the verify-email screen",
-      ).toBeVisible();
+      await test.step(STEPS.register, async () => {
+        await gotoRegisterFromLogin(page); // LIVE-CONFIRM (a)
+        await submitRegistration(page, email);
+        await expect(
+          page.getByRole("heading", { name: /check your email/i }),
+          "self-service sign-up hands off to the verify-email screen",
+        ).toBeVisible();
+      });
 
       // 3) Capture the REAL verification email from Mailpit (SMTP-delivered by
       //    identity through the tenant's BYO-SMTP). LIVE-CONFIRM (b).
       let verifyLink: string | null = null;
-      await expect
-        .poll(
-          async () => {
-            verifyLink = await findVerificationLink(request, config.mailpit, email);
-            return verifyLink;
-          },
-          {
-            // The identity email send is queued/async; allow generous delivery time.
-            message: `verification email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
-            timeout: 90_000,
-            intervals: [1000, 2000, 3000, 5000],
-          },
-        )
-        .not.toBeNull();
-      expect(
-        verifyLink!,
-        "verification link points at the identity verify-email landing",
-      ).toContain("/verify-email?token=");
+      await test.step(STEPS.capture, async () => {
+        await expect
+          .poll(
+            async () => {
+              verifyLink = await findVerificationLink(request, config.mailpit, email);
+              return verifyLink;
+            },
+            {
+              // The identity email send is queued/async; allow generous delivery time.
+              message: `verification email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+              timeout: 90_000,
+              intervals: [1000, 2000, 3000, 5000],
+            },
+          )
+          .not.toBeNull();
+        expect(
+          verifyLink!,
+          "verification link points at the identity verify-email landing",
+        ).toContain("/verify-email?token=");
+      });
 
       // 4) Follow the real link → branded "verified" success (token consumed server-side).
-      await page.goto(verifyLink!, { waitUntil: "domcontentloaded" });
-      await expect(
-        page.getByRole("heading", { name: /your email is verified/i }),
-        "the captured verification link verifies the email",
-      ).toBeVisible();
+      await test.step(STEPS.verify, async () => {
+        await page.goto(verifyLink!, { waitUntil: "domcontentloaded" });
+        await expect(
+          page.getByRole("heading", { name: /your email is verified/i }),
+          "the captured verification link verifies the email",
+        ).toBeVisible();
+      });
 
       // 5) Return to the RP and complete the OIDC login with the verified creds.
       //    LIVE-CONFIRM (c): the account just verified on the tenant's identity
       //    authenticates through the workspace hub federation and back to the RP.
-      await startSignInFromRp(page);
-      await expect(page.locator("#passwordForm")).toBeVisible();
-      await submitLogin(page, email);
+      await test.step(STEPS.signin, async () => {
+        await startSignInFromRp(page);
+        await expect(page.locator("#passwordForm")).toBeVisible();
+        await submitLogin(page, email);
 
-      // Back on the loopback RP's protected page, signed in.
-      await expect(
-        page.getByText(/you are signed in as/i),
-        "the OIDC code flow completes and the RP renders its protected page",
-      ).toBeVisible({ timeout: 30_000 });
-      // The RP renders the signed-in email in more than one place (a heading <strong>
-      // and the claims table <td>), so scope to the first match to avoid a strict-mode
-      // violation — presence anywhere proves the correct user is signed in.
-      await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
+        // Back on the loopback RP's protected page, signed in.
+        await expect(
+          page.getByText(/you are signed in as/i),
+          "the OIDC code flow completes and the RP renders its protected page",
+        ).toBeVisible({ timeout: 30_000 });
+        // The RP renders the signed-in email in more than one place (a heading <strong>
+        // and the claims table <td>), so scope to the first match to avoid a strict-mode
+        // violation — presence anywhere proves the correct user is signed in.
+        await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
+      });
     } finally {
       await context.close();
     }

@@ -10,7 +10,19 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": "..",
+    "paths": {
+      "@playwright/test": ["node_modules/@playwright/test"],
+      "@playwright/test/*": ["node_modules/@playwright/test/*"]
+    }
   },
-  "include": ["lib/**/*.ts", "tests/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "lib/**/*.ts",
+    "lib/**/*.mjs",
+    "scripts/**/*.mjs",
+    "playwright.config.ts",
+    "../recipes/*/e2e/**/*.ts",
+    "../recipes/*/e2e/**/*.mjs"
+  ]
 }

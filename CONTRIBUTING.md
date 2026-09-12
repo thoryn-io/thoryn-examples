@@ -23,6 +23,12 @@ This is the one hard rule; everything else is convention.
    ```bash
    npx --yes ajv-cli@5 validate -s schema/recipe.schema.json -d "recipes/**/recipe.yaml" --spec=draft2020 -c ajv-formats
    ```
+5. (Optional, recommended for user-facing flows) add a **colocated** browser E2E under
+   `recipes/<id>/e2e/` — a `scenario.mjs` (declared steps) + a `*-journey.spec.ts` that
+   imports the shared harness from the repo-root [`e2e/`](e2e/) tree (config + Mailpit
+   capture), and wire it as a project in [`e2e/playwright.config.ts`](e2e/playwright.config.ts).
+   Seed its report with `npm run results:init`. See [`e2e/README.md`](e2e/README.md). Keep
+   shared setup in `e2e/` — don't copy it into the recipe.
 
 ## Recipe fields (summary)
 

@@ -39,6 +39,10 @@ schema/recipe.schema.json          # the recipe format (JSON Schema, draft 2020-
 recipes/<id>/recipe.yaml           # a recipe (authored in YAML)
 recipes/<id>/README.md             # what the recipe does + how to run it
 recipes/<id>/apps/…                # runnable assets (e.g. a loopback relying-party app)
+recipes/<id>/e2e/…                 # the recipe's COLOCATED browser E2E spec + scenario
+recipes/<id>/E2E_RESULTS.md        # generated E2E coverage + latest-result report
+package.json                       # root npm package — shared E2E deps (single node_modules)
+e2e/                               # shared E2E harness (config, Mailpit capture, results reporter)
 .github/workflows/ci.yml           # validates every recipe against the schema
 ```
 
@@ -118,7 +122,11 @@ Provision the workflow's config once (see **CI provisioning setup** below): the 
 further than conformance: it drives the `simple-signin` **browser journey** against staging — a
 genuine self-service sign-up whose **verification email is captured from an ephemeral, in-job
 [Mailpit](https://mailpit.axllent.org/) sink** (via the tenant's BYO-SMTP, SSO-2917) — then signs in
-through the recipe's loopback RP to a protected page. The harness lives in [`e2e/`](e2e/).
+through the recipe's loopback RP to a protected page. The spec is **colocated** with the
+recipe at [`recipes/simple-signin/e2e/`](recipes/simple-signin/e2e/); the **shared** harness
+(config, Mailpit capture, the results reporter) lives in [`e2e/`](e2e/). Each run regenerates
+[`recipes/simple-signin/E2E_RESULTS.md`](recipes/simple-signin/E2E_RESULTS.md) — the recipe's
+E2E coverage + latest-result report.
 
 Under the API-key model it provisions an **ephemeral OAuth app inside the standing workspace** (via
 `ci-signin`) rather than a fresh workspace per run, and points that **standing workspace's BYO-SMTP at
@@ -161,6 +169,12 @@ tenant:users.write tenant:email.write`.
 Because `sandbox-signin` is **not bundled** in the CLI, the workflow runs `thoryn examples update` to
 fetch it from this repo's **signed catalog** (SSO-2968) before `apply`. It shares `example-e2e.yml`'s
 concurrency group so the two suites never race on the shared standing workspace's BYO-SMTP config.
+
+The sandbox journey has its **own colocated spec** at
+[`recipes/sandbox-signin/e2e/`](recipes/sandbox-signin/e2e/) (it additionally asserts the RP
+points at the **sandbox per-env issuer**), sharing the same [`e2e/`](e2e/) harness as
+`example-e2e.yml`. Each run regenerates
+[`recipes/sandbox-signin/E2E_RESULTS.md`](recipes/sandbox-signin/E2E_RESULTS.md).
 
 `env.delete` (product-api `DELETE /api/v1/environments/{id}`, SSO-2960) is **sandbox-only** and
 name-confirmation-guarded: the interpreter sends the environment's **own slug** as `X-Thoryn-Confirm`

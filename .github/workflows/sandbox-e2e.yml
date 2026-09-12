@@ -361,6 +361,13 @@ jobs:
       # NOTE(SSO-2969): this assumes the sandbox environment's hosted identity exposes self-service
       # sign-up at IDENTITY_BASE_URL and that the verification email reaches the in-job Mailpit. Both
       # are unproven for a sandbox env — the first live run confirms them (or records the gap).
+      # The E2E harness is a ROOT npm package (single node_modules) so the recipes'
+      # COLOCATED specs (recipes/<id>/e2e/) resolve @playwright/test. The shared harness
+      # (config, Mailpit capture, the per-recipe results reporter) lives under e2e/; the
+      # `test:sandbox` script runs ONLY the `sandbox-signin` project — its OWN colocated
+      # spec (recipes/sandbox-signin/e2e/sandbox-signin-journey.spec.ts), which asserts
+      # the RP points at the sandbox per-env issuer. The reporter writes
+      # recipes/sandbox-signin/E2E_RESULTS.md from this run.
       - name: Run the Playwright harness (Path B — Mailpit email capture)
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
@@ -371,14 +378,13 @@ jobs:
           # auth. (config.ts already defaults to this; set explicitly.)
           MAILPIT_BASE_URL: http://localhost:8025
           CI: "true"
-        working-directory: e2e
         run: |
           set -euo pipefail
           npm ci
           npx playwright install --with-deps chromium
-          npm test
+          npm run test:sandbox
 
-      - name: Upload Playwright report
+      - name: Upload Playwright report + generated E2E_RESULTS.md
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -386,6 +392,7 @@ jobs:
           path: |
             e2e/playwright-report/
             e2e/test-results/
+            recipes/sandbox-signin/E2E_RESULTS.md
           if-no-files-found: warn
           retention-days: 14
 

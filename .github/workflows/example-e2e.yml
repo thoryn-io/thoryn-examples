@@ -302,6 +302,11 @@ jobs:
           done
 
       # ── Drive the Path-B browser journey (SSO-2909) ─────────────────────────
+      # The E2E harness is a ROOT npm package (single node_modules) so the recipes'
+      # COLOCATED specs (recipes/<id>/e2e/) resolve @playwright/test. The shared harness
+      # (config, Mailpit capture, the per-recipe results reporter) lives under e2e/; the
+      # `test:simple` script runs ONLY the `simple-signin` project. The reporter writes
+      # recipes/simple-signin/E2E_RESULTS.md from this run.
       - name: Run the Playwright harness (Path B — Mailpit email capture)
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
@@ -312,14 +317,13 @@ jobs:
           # no tunnel, no auth. (config.ts already defaults to this; set explicitly.)
           MAILPIT_BASE_URL: http://localhost:8025
           CI: "true"
-        working-directory: e2e
         run: |
           set -euo pipefail
           npm ci
           npx playwright install --with-deps chromium
-          npm test
+          npm run test:simple
 
-      - name: Upload Playwright report
+      - name: Upload Playwright report + generated E2E_RESULTS.md
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -327,6 +331,7 @@ jobs:
           path: |
             e2e/playwright-report/
             e2e/test-results/
+            recipes/simple-signin/E2E_RESULTS.md
           if-no-files-found: warn
           retention-days: 14
 

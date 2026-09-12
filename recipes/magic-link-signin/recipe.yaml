@@ -1,0 +1,95 @@
+# SSO-3047 (epic SSO-3046) — `magic-link-signin`: the canonical SAME-DEVICE PASSWORDLESS example.
+# Same per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able
+# user), but the browser journey signs in with NO password: it requests a single-use email sign-in
+# link, captures that email from the sandbox test-inbox, and opens the link ON THE SAME DEVICE that
+# started the sign-in — so the clicking session is authenticated and the OAuth flow resumes to the RP.
+#
+# Why the recipe is just env + app + user (no magic-link-specific action): magic-link is ON BY
+# DEFAULT in Thoryn's hosted login (identity `LoginMethod.DEFAULT_ORDER = [PASSWORD, MAGIC_LINK]`),
+# so a fresh sandbox already offers the "email me a sign-in link" affordance. No login-method policy
+# action and no new scope are needed; the passwordless request + consume live entirely in the e2e.
+#
+# SAME-vs-CROSS device (SSO-57 + SSO-2613): requesting a link sets an `ML_INIT` initiating-device
+# cookie; opening the link on the SAME device (matching cookie) authenticates that session. The
+# OTHER-device variant is the separate `magic-link-cross-device-signin` recipe (SSO-3048).
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
+# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
+# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user).
+apiVersion: thoryn.io/examples/v1
+id: magic-link-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, then sign in PASSWORDLESS via a single-use email magic-link opened on the SAME device; then hard-delete the sandbox.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), applications.create (write) + the applications.get verify (read),
+    # identity.registerUser (users.write). No magic-link scope — requesting/consuming a link is an
+    # unauthenticated hosted-login action the browser journey performs, not a provisioning call.
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+  # Same baseline as sandbox-signin — fetched-catalog + env.create/env.delete + identity.registerUser.
+  # Magic-link is default-on, so no newer CLI and no new recipe action are required.
+  minCliVersion: 0.3.7
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "magic-link-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Magic-link Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Magic-link Sign-in App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly via a magic link.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — the user can also sign in with a password, but this example
+      # proves the PASSWORDLESS magic-link path. Rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown (child-first): delete the app, then hard-delete the sandbox it lives in. The hard-delete
+# cascades the client + the user — nothing outlives the environment.
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

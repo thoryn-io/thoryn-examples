@@ -1,0 +1,88 @@
+# SSO-3048 (epic SSO-3046) — `magic-link-cross-device-signin`: the ANOTHER-DEVICE passwordless example,
+# showing the anti-phishing CONTINUATION-CODE property. Same per-run ephemeral sandbox as
+# sandbox-signin (env + a loopback OAuth client + a sign-in-able user), but the browser journey uses
+# TWO devices: device A starts the sign-in and requests a single-use email link; device B (a DIFFERENT
+# browser context, no ML_INIT cookie) opens the link and is DELIBERATELY NOT signed in — instead it
+# shows a short continuation code that must be typed back on device A to complete the sign-in there.
+#
+# Why this is a SEPARATE recipe from magic-link-signin: the same-device flow is seamless (open the
+# link, you're in); the cross-device flow is the SECURITY story — a link opened on another device
+# (forwarded, prefetched by a mail scanner, intercepted) can NEVER complete the sign-in on its own.
+# SSO-2613 (adaptive cross-device magic-link) implements exactly this: the clicking device is never
+# authenticated; a continuation code bound to the INITIATING session (ML_INIT) is redeemed on device A.
+#
+# Why the recipe is just env + app + user (no magic-link-specific action): magic-link is ON BY DEFAULT
+# (identity LoginMethod.DEFAULT_ORDER = [PASSWORD, MAGIC_LINK]); the request + cross-device consume +
+# redeem live entirely in the e2e. No login-method policy action and no new scope are needed.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
+# later steps provision into the sandbox; teardown env.delete hard-deletes it (cascading client + user).
+apiVersion: thoryn.io/examples/v1
+id: magic-link-cross-device-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, then sign in PASSWORDLESS ACROSS TWO DEVICES — open the link on another device, redeem its continuation code on the initiating device; then hard-delete the sandbox.
+
+requires:
+  scopes:
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+  minCliVersion: 0.3.7
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "magic-xdev-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Magic-link Cross-device Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Magic-link Cross-device App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly across two devices.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — the cross-device flow is passwordless; rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

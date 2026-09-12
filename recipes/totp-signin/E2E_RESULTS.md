@@ -7,8 +7,8 @@
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
-**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T19:53:28.771Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-12T20:19:26.029Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -22,7 +22,7 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 |---|------|--------|
 | 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
 | 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ✅ passed |
-| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ❌ failed |
+| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ✅ passed |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
 
@@ -30,17 +30,12 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 17.7s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 33.6s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ✅ passed | 20.7s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 33.0s |
 
 ## Diagnostics
 
 ```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP challenge verify should 2xx (got 403) {"timestamp":"2026-09-12T19:52:54.408Z","status":403,"error":"Forbidden","path":"/mfa/totp/verify"}
-
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
-
-Received: [31mfalse[39m
 [error path: a wrong TOTP code is rejected at the challenge] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
 
 Locator: getByText(/you are signed in as/i)
@@ -53,12 +48,12 @@ Call log:
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34715378901-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34716643656-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34715378901)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34716643656)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

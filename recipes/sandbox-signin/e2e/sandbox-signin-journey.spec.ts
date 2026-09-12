@@ -135,6 +135,22 @@ test.describe("sandbox-signin example — fresh sandbox env → self-service sig
           page.locator("#passwordForm"),
           "the RP sign-in reaches the identity hosted login via the sandbox hub",
         ).toBeVisible({ timeout: 30_000 });
+
+        // SSO-3039 — the recipe's `tenant.configureLoginTheme` step styled THIS sandbox's hosted
+        // login (primaryColor #7c3aed). Prove the branding reached the rendered screen: identity
+        // emits it as the `--brand-primary` CSS custom property in the login template's inline :root.
+        // This is the end-to-end proof that `thoryn branding` / the recipe action actually re-skins
+        // the sign-in screen per environment.
+        const brandPrimary = (
+          await page.evaluate(() =>
+            getComputedStyle(document.documentElement).getPropertyValue("--brand-primary"),
+          )
+        )
+          .trim()
+          .toLowerCase();
+        expect(brandPrimary, "the sandbox hosted login renders the recipe-configured --brand-primary").toBe(
+          "#7c3aed",
+        );
       });
 
       // 2) Follow the self-service sign-up path and register a brand-new end user.

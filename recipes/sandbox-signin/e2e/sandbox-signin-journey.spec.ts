@@ -19,33 +19,33 @@
  *   1. Open the REAL loopback RP (../apps/loopback-rp/server.js):
  *      GET / → "Sign in with Thoryn" → RP 302s to {sandbox-issuer}/oauth2/authorize
  *      → the hub federates to the tenant's identity → its hosted login renders.
- *   2–5. Same Path-B legs as simple-signin: self-service sign-up → capture the REAL
- *      verification email from the in-job Mailpit sink → verify → sign in → /protected.
+ *   2–5. Sandbox Path-B legs: self-service sign-up → capture the REAL verification email
+ *      from the sandbox TEST-INBOX (via `thoryn env test-emails`) → verify → sign in →
+ *      /protected.
  *
- * The headline human flow in the recipe README is the sandbox TEST-INBOX round trip
- * (`thoryn env test-emails`): a sandbox suppresses real transactional email and captures
- * it into a per-env inbox the CLI reads. This browser harness cannot drive the CLI inbox
- * (it drives the hosted UI, not the CLI), so it captures the SAME genuinely-sent email
- * from the CI Mailpit sink the sandbox-e2e workflow wires via the standing workspace's
- * BYO-SMTP — an equivalent, non-faked capture of the real email. Exercising the
- * `thoryn env test-emails` inbox itself belongs in a CLI-level conformance check (noted
- * as follow-up in E2E_RESULTS.md), not this browser journey.
+ * Email capture is the ONE deliberate difference from simple-signin. A sandbox SUPPRESSES
+ * real transactional email by design (identity `TestModeEmailGate`, SSO-2449) and captures
+ * it into a per-env inbox (SSO-3026) — so a sandbox sign-up's verification email never
+ * reaches an SMTP sink. The 2026-09-12 first live run proved this: the RP reached the
+ * hosted login and sign-up succeeded, but the verification email landed in `sandbox_email`,
+ * NOT the in-job Mailpit (the earlier NOTE(SSO-2969) "a workspace BYO-SMTP routes a sandbox
+ * sign-up's email to the sink" assumption was disproven — it is correct suppression, not a
+ * gap). So this journey reads the verify link from the sandbox test-inbox through the
+ * product's own read surface (`thoryn env test-emails`, the recipe README's headline flow) —
+ * a genuine, non-faked capture of the real email. simple-signin stays on Mailpit (it
+ * provisions a workspace, where email really sends). See e2e/lib/test-inbox.mjs.
  *
  * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │ SCAFFOLD — the FIRST LIVE sandbox run is the validation. Beyond simple-signin's │
- * │ three LIVE-CONFIRM seams, it must confirm the sandbox-specific NOTE(SSO-2969):  │
- * │  • identity.registerUser + self-service sign-up are honoured PER-ENVIRONMENT,   │
+ * │ LIVE-CONFIRMED (2026-09-12, SSO-3033/SSO-3036): the sandbox-specific seams —    │
+ * │  • self-service sign-up is honoured PER-ENVIRONMENT,                            │
  * │  • the sandbox per-env issuer (workspace issuer + /{env-slug} path) serves the   │
- * │    hosted login, and                                                            │
- * │  • a WORKSPACE-level BYO-SMTP still routes a sandbox sign-up's verification       │
- * │    email to the sink.                                                           │
- * │ If any lands at workspace scope instead, that is a product gap to RECORD         │
- * │ (SSO-2943 family) — not a shortcut to paper over here.                          │
+ * │    hosted login (once SSO-3036 auto-attaches the env IdP — no federation_required),│
+ * │  • a sandbox sign-up's verification email is captured to the per-env test-inbox. │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
 import { test, expect, type Page } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { findVerificationLink } from "../../../e2e/lib/mailbox";
+import { findVerificationLinkViaInbox } from "../../../e2e/lib/test-inbox.mjs";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -147,19 +147,23 @@ test.describe("sandbox-signin example — fresh sandbox env → self-service sig
         ).toBeVisible();
       });
 
-      // 3) Capture the REAL verification email from the in-job Mailpit sink.
-      //    NOTE(SSO-2969): confirms a WORKSPACE-level BYO-SMTP routes a SANDBOX
-      //    sign-up's email to the sink — the first live run proves (or records) this.
+      // 3) Capture the REAL verification email from the sandbox TEST-INBOX via the CLI.
+      //    A sandbox SUPPRESSES real transactional email by design (identity TestModeEmailGate,
+      //    SSO-2449) and captures it into a per-env inbox (SSO-3026) — so a sandbox sign-up's
+      //    verification email NEVER reaches the Mailpit sink (the 2026-09-12 live run confirmed
+      //    the captured row lands in `sandbox_email`, not the BYO-SMTP sink). The inbox is the
+      //    product's own read surface for exactly this (`thoryn env test-emails`); reading it is a
+      //    genuine, non-faked capture of the real email. See e2e/lib/test-inbox.mjs.
       let verifyLink: string | null = null;
       await test.step(STEPS.capture, async () => {
         await expect
           .poll(
             async () => {
-              verifyLink = await findVerificationLink(request, config.mailpit, email);
+              verifyLink = await findVerificationLinkViaInbox(config.cli, email);
               return verifyLink;
             },
             {
-              message: `verification email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+              message: `verification email to ${email} captured from the sandbox test-inbox (env ${config.cli.envSlug})`,
               timeout: 90_000,
               intervals: [1000, 2000, 3000, 5000],
             },

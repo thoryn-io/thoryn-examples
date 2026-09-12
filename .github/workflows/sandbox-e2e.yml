@@ -155,14 +155,16 @@ jobs:
           issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
           echo "Signing in at $issuer (gateway $THORYN_GATEWAY)."
           # Request EXACTLY this suite's scopes. environments.write create/deletes the sandbox;
-          # applications.write+read provision/verify/delete the client; users.write registers the
-          # sandbox user (identity.registerUser); email.write (re)points the standing workspace's
-          # BYO-SMTP at the per-run tunnel. The hub mints a token with only these — an omitted scope
-          # 403s that call. (users.write is why the CI provisioning key must add tenant:users.write to
-          # the scope union — see README; example-e2e's key does not need it.)
+          # environments.read reads the sandbox TEST-INBOX (SSO-3026/SSO-3036 — the verify email is
+          # suppressed from SMTP and captured per-env, so the journey reads it via
+          # `thoryn env test-emails`); applications.write+read provision/verify/delete the client;
+          # users.write registers the sandbox user (identity.registerUser); email.write (re)points the
+          # standing workspace's BYO-SMTP at the per-run tunnel. The hub mints a token with only these —
+          # an omitted scope 403s that call. (The CI provisioning key already HOLDS environments.read
+          # alongside environments.write — see README; this just requests it.)
           java -jar thoryn.jar login --client-credentials \
             --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
-            --scope "tenant:environments.write tenant:applications.write tenant:applications.read tenant:users.write tenant:email.write"
+            --scope "tenant:environments.write tenant:environments.read tenant:applications.write tenant:applications.read tenant:users.write tenant:email.write"
           java -jar thoryn.jar login --status
 
       # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──
@@ -368,15 +370,19 @@ jobs:
       # spec (recipes/sandbox-signin/e2e/sandbox-signin-journey.spec.ts), which asserts
       # the RP points at the sandbox per-env issuer. The reporter writes
       # recipes/sandbox-signin/E2E_RESULTS.md from this run.
-      - name: Run the Playwright harness (Path B — Mailpit email capture)
+      - name: Run the Playwright harness (Path B — sandbox test-inbox capture)
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
-          # The harness reads the captured mail from the in-job Mailpit's LOCAL API — no tunnel, no
-          # auth. (config.ts already defaults to this; set explicitly.)
-          MAILPIT_BASE_URL: http://localhost:8025
+          # SSO-3033/SSO-3036 — the sandbox journey reads the verification email from the per-env
+          # TEST-INBOX (SSO-3026) via the CLI, because a sandbox SUPPRESSES real email (SSO-2449) so it
+          # never reaches the Mailpit sink. The harness shells out to the SAME prebuilt thoryn.jar the
+          # workflow signed in above (session persisted in $HOME, carrying tenant:environments.read),
+          # scoped to this run's sandbox.
+          THORYN_JAR: ${{ github.workspace }}/thoryn.jar
+          SANDBOX_ENV_SLUG: ${{ env.SANDBOX_ENV_SLUG }}
           CI: "true"
         run: |
           set -euo pipefail

@@ -61,6 +61,25 @@ export const config = {
   /** Ephemeral in-job Mailpit sink (see `mailpit` above). */
   mailpit,
 
+  /**
+   * SSO-3033 / SSO-3036 — the `thoryn` CLI, used by the SANDBOX journey to read the
+   * verification email from the sandbox TEST-INBOX (SSO-3026) instead of Mailpit. A
+   * sandbox SUPPRESSES real transactional email by design (`TestModeEmailGate`, SSO-2449)
+   * and captures it into a per-env inbox; the workflow's BYO-SMTP only ever carries a
+   * WORKSPACE-plane email, so a sandbox sign-up's verification link never reaches the sink.
+   * The inbox is the correct, non-faked capture channel for a sandbox — the email is really
+   * generated and stored, and we read it through the product's own read API via the CLI.
+   *
+   * `jarPath` is the prebuilt `thoryn.jar` on the runner (the same one the workflow uses for
+   * apply/teardown, already signed in with a session that carries tenant:environments.read);
+   * `envSlug` is the fresh per-run sandbox. Both are empty for the simple-signin journey,
+   * which stays on the Mailpit path (it provisions a workspace, not a sandbox).
+   */
+  cli: {
+    jarPath: process.env.THORYN_JAR ?? "",
+    envSlug: process.env.SANDBOX_ENV_SLUG ?? "",
+  },
+
   /** Credentials for the self-service sign-up. A fresh email per run (see uniqueEmail). */
   password: process.env.SIGNUP_PASSWORD ?? "Example-Signin-Pw1!",
   givenName: "Demo",

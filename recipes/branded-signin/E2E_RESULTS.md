@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/branded-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-12T13:50:52.914Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ❌ failed
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-12T14:16:31.516Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,11 +20,42 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | RP → “Sign in with Thoryn” → the sandbox hosted login renders WITH the recipe's brand color | ⏳ not yet run |
-| 2 | Follow the self-service sign-up path and register a brand-new end user in the sandbox | ⏳ not yet run |
-| 3 | Capture the REAL verification email from the sandbox test-inbox (thoryn env test-emails) | ⏳ not yet run |
-| 4 | Follow the captured verify-email link → “Your email is verified” | ⏳ not yet run |
-| 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ⏳ not yet run |
+| 1 | RP → “Sign in with Thoryn” → the sandbox hosted login renders WITH the recipe's brand color | ❌ failed |
+| 2 | Follow the self-service sign-up path and register a brand-new end user in the sandbox | ⏭️ skipped |
+| 3 | Capture the REAL verification email from the sandbox test-inbox (thoryn env test-emails) | ⏭️ skipped |
+| 4 | Follow the captured verify-email link → “Your email is verified” | ⏭️ skipped |
+| 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ⏭️ skipped |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand | ❌ failed | 3.0s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.9s |
+
+## Diagnostics
+
+```
+[full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand] Error: the sandbox hosted login renders the recipe-configured --brand-primary
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+Expected: [32m"#[7m7c3aed[27m"[39m
+Received: [31m"#[7m2563eb[27m"[39m
+```
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org/brand-signin-34698748059-1 |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34698748059)
+- [Playwright HTML report (CI artifact)](the `branded-signin-e2e-playwright-report` artifact on the CI run)
 

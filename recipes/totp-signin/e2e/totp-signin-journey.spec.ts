@@ -34,12 +34,20 @@ async function startSignInFromRp(page: Page): Promise<void> {
   await page.getByRole("link", { name: /sign in with thoryn/i }).click();
 }
 
-/** Fill + submit the hosted password form (identity login.html #passwordForm). */
-async function submitPassword(page: Page, email: string): Promise<void> {
+/**
+ * Fill + submit the hosted password form (identity login.html #passwordForm) and return the IDENTITY
+ * ORIGIN the form is served from. A workspace user's hosted login (and its session) lives on the
+ * per-workspace identity host (`{slug}.identity.<domain>`, SSO-2849), NOT the default
+ * `identity.stg.thoryn.org` — so the self-service enrol later must target THIS origin, captured here
+ * from the live page rather than assumed from config.
+ */
+async function submitPassword(page: Page, email: string): Promise<string> {
   await expect(page.locator("#passwordForm")).toBeVisible({ timeout: 30_000 });
+  const identityOrigin = new URL(page.url()).origin;
   await page.locator("#passwordEmail").fill(email);
   await page.locator("#password").fill(config.password);
   await page.locator("#passwordForm button[type=submit]").click();
+  return identityOrigin;
 }
 
 /**
@@ -52,8 +60,8 @@ async function submitPassword(page: Page, email: string): Promise<void> {
  * session chain) to obtain the _csrf meta, then fetch() the endpoints IN THE PAGE so the session
  * cookie + CSRF header ride along same-origin.
  */
-async function enrollTotp(page: Page): Promise<string> {
-  const base = config.identityBaseUrl;
+async function enrollTotp(page: Page, identityOrigin: string): Promise<string> {
+  const base = identityOrigin;
   // The real enrolment page renders the session _csrf meta; the browser already holds the identity
   // session from the first sign-in, so that same-session token validates the POSTs.
   await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" });
@@ -97,9 +105,10 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
 
     try {
       // 1) First sign-in with the password only (the user has no second factor yet).
+      let identityOrigin = "";
       await test.step(STEPS.firstSignin, async () => {
         await startSignInFromRp(page);
-        await submitPassword(page, email);
+        identityOrigin = await submitPassword(page, email);
         await expect(
           page.getByText(/you are signed in as/i),
           "the first (password-only) sign-in reaches the RP protected page",
@@ -109,7 +118,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       // 2) Enrol a TOTP authenticator for the now-signed-in user (self-service MFA API).
       let secret = "";
       await test.step(STEPS.enroll, async () => {
-        secret = await enrollTotp(page);
+        secret = await enrollTotp(page, identityOrigin);
       });
 
       // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
@@ -142,9 +151,9 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
     try {
       // Enrol first (so the account is TOTP-gated), then re-sign-in and enter a bad code.
       await startSignInFromRp(page);
-      await submitPassword(page, email);
+      const identityOrigin = await submitPassword(page, email);
       await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page);
+      await enrollTotp(page, identityOrigin);
 
       await context.clearCookies();
       await startSignInFromRp(page);

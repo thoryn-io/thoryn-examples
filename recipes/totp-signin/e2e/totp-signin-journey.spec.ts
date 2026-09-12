@@ -107,7 +107,14 @@ async function enrollTotp(page: Page, identityOrigin: string, email: string): Pr
   return secret!;
 }
 
-test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
+// BLOCKED on SSO-3049: a sandbox-env user has no reachable self-service MFA-enrolment path on
+// staging. The hub-federated session does NOT authorize identity's account portal
+// (GET /account/security → 302 /login → enrol POST 403), and a direct identity /login cannot
+// authenticate a sandbox user (no env context → stays on /login). Proven with Playwright traces
+// on 2026-09-12. The recipe, the RFC-6238 core (e2e/lib/totp.mjs, unit-tested), and the
+// password first-sign-in all work; the enrol→challenge journey is skipped (test.describe.fixme)
+// until SSO-3049 gives a sandbox user a way to enrol. Flip back to test.describe once it lands.
+test.describe.fixme("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043; enrol blocked on SSO-3049)", () => {
   test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
     browser,
   }) => {

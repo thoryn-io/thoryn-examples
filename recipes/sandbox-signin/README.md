@@ -51,6 +51,42 @@ client id) that the `run` step and the CI workflow read.
 the client id from the receipt, so a user completes the full Authorization-Code + PKCE flow to a
 protected page. You can also run it by hand — see [`apps/loopback-rp/README.md`](apps/loopback-rp/README.md).
 
+## Complete the email-verification round trip (the sandbox test inbox, SSO-3026)
+
+The `user` step above sets `emailVerified: true` so `thoryn examples run` can sign in with **zero
+friction**. To instead exercise the **real sign-up → email-verification → sign-in** flow — the one an
+end user goes through — use the sandbox **test inbox**.
+
+A sandbox **suppresses every real transactional email** (so your tests never mail a real person) and
+**captures** each one into a per-environment inbox instead. `thoryn env test-emails` reads it, so you
+get the verification link without a real mailbox:
+
+```bash
+# 1) Target the sandbox this recipe created (its slug is in the receipt):
+thoryn env use <envSlug>
+
+# 2) Register a NEW, unverified user on the hosted sign-up page of the sandbox issuer
+#    (open {sandbox-issuer}/register in a browser, or via the loopback RP's "Register" link).
+
+# 3) Read the captured verification email and open its link:
+thoryn env test-emails list --channel email_verification --to <that-email>
+thoryn env test-emails get <email-id>          # prints the record incl. its `actionLink` (the verify URL)
+# open the actionLink → the page confirms "Your email is verified."
+
+# 4) Sign in through the loopback RP — you land on /protected; the id_token's `env` claim names the sandbox.
+```
+
+Scripted (grab the link straight from the inbox):
+
+```bash
+LINK=$(thoryn env test-emails list --env <envSlug> --channel email_verification --to <email>          --output json | jq -r '.emails[0].actionLink')
+echo "Open: $LINK"
+```
+
+The inbox is **read-only** and **sandbox-only** (`tenant:environments.read`, held by the CLI); a
+production environment captures nothing, so its inbox is always empty. Captured emails are
+retention-capped and purged with the sandbox. Requires the CLI release that adds `thoryn env test-emails` (SSO-3026).
+
 ## How the interpreter authenticates
 
 This recipe has **no `hub.createWorkspace` step**, so the interpreter authenticates the `env.create` /

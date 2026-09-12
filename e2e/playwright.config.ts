@@ -77,5 +77,10 @@ export default defineConfig({
       testDir: "../recipes/totp-signin/e2e",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "magic-link-signin",
+      testDir: "../recipes/magic-link-signin/e2e",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

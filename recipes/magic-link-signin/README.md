@@ -1,36 +1,62 @@
-# `totp-signin` example (ephemeral sandbox + a TOTP second factor)
+# `magic-link-signin` — passwordless sign-in via a single-use email link (same device)
 
-A declarative Thoryn example recipe that does everything [`sandbox-signin`](../sandbox-signin/README.md)
-does — provision a throwaway **sandbox environment** + a loopback OAuth client + a sign-in-able user —
-and adds the canonical **two-factor** concept: the browser journey **enrols a TOTP authenticator** for
-the user, then proves a fresh sign-in is **challenged for the second factor** and completes with a
-computed code.
+The canonical **passwordless** example. A user signs in with **no password**: the hosted login
+emails them a single-use sign-in link; opening it **on the same device** that started the sign-in
+logs them straight in and resumes the OAuth flow to the app.
 
-> MFA in Thoryn is **user-enrolment-driven** — once a user enrols a second factor, every sign-in
-> challenges for it. So this recipe provisions the same shape as `sandbox-signin` (no MFA-specific
-> action or scope); the 2FA behaviour lives entirely in the journey.
+It provisions a throwaway **sandbox environment** in your standing workspace, a loopback OAuth
+client, and a verified user inside it — then the browser E2E drives the real passwordless journey and
+the sandbox is hard-deleted on teardown.
+
+> Opening the link on **another** device is a deliberately different, anti-phishing flow (a short
+> continuation code you type back on the first device). That is the separate
+> [`magic-link-cross-device-signin`](../magic-link-cross-device-signin/) example.
+
+## Why no "enable magic link" step
+
+Magic-link is **on by default** in Thoryn's hosted login (it is in the default login-method order),
+so a fresh sandbox already shows the "email me a sign-in link" affordance. The recipe is just
+`env.create → applications.create → identity.registerUser` (the same shape as `sandbox-signin`); the
+passwordless request + consume live entirely in the browser journey. No login-method policy change
+and no new scope are required.
 
 ## Run it
 
 ```bash
-thoryn examples update
-thoryn examples setup    totp-signin --set workspaceSlug=<your-ws>   # sandbox + client + user
-thoryn examples run      totp-signin                                 # browser: sign in → (enrol) → TOTP challenge → /protected
-thoryn examples teardown totp-signin                                 # delete the client + hard-delete the sandbox
+thoryn examples run magic-link-signin
 ```
 
-## The journey (browser E2E)
+You will be prompted for your standing workspace slug. The recipe creates a fresh sandbox
+(`magic-link-{slug8}`), a loopback client, and a verified user, then verifies the client is active.
 
-`recipes/totp-signin/e2e/totp-signin-journey.spec.ts` (workflow `.github/workflows/totp-signin-e2e.yml`):
+## How the sign-in works
 
-1. **Password sign-in** — the user signs in with just the password (no second factor yet) → `/protected`.
-2. **Enrol TOTP** — as the signed-in user, call the self-service MFA API (`POST /api/v1/me/mfa/totp/enroll` → `{secret}`) and verify a code computed by the pure RFC-6238 computer in [`e2e/lib/totp.mjs`](../../e2e/lib/totp.mjs) — the same algorithm a real authenticator app runs (never faked).
-3. **Challenge** — a fresh sign-in is now **challenged** at the hosted `/mfa/totp/challenge`; the computed code completes it → `/protected`. A wrong code is rejected.
+1. The app sends you to the hosted login; you choose **"Sign in with magic link"** and enter your
+   email. identity `POST /auth/magic-link/request` emails a single-use link and sets an `ML_INIT`
+   cookie on **this** device.
+2. You open the link. Because this device carries the matching `ML_INIT` cookie (**same device**),
+   identity authenticates the session and resumes `/oauth2/authorize` → back to the app, signed in.
 
-The whole sandbox (client + user + MFA enrolment) is hard-deleted on teardown. Per-run results land in [`E2E_RESULTS.md`](E2E_RESULTS.md).
+In a **sandbox** the email is not sent over real SMTP — it is captured into the environment's test
+inbox (readable with `thoryn env test-emails`), which is how the E2E retrieves the link.
 
-## Scopes
+## Endpoint reference
 
-`tenant:environments.write` (create/delete the sandbox), `tenant:applications.write` + `.read`
-(create/verify/delete the client), `tenant:users.write` (register the user). No MFA-specific scope —
-TOTP enrolment is a user self-service action the journey performs as the signed-in user.
+| Method | Path | Description |
+|---|---|---|
+| POST | `/auth/magic-link/request` | Request a single-use sign-in link for an email (always 202; sets `ML_INIT`) |
+| GET  | `/auth/magic-link/consume?token=…` | Open the link; same device → signed in + resume OAuth |
+
+## Security notes
+
+- The link is **single-use**, short-lived (~15 min), and bound to the `(client_id, redirect_uri)` of
+  the sign-in it was requested for.
+- The `ML_INIT` cookie is `HttpOnly` / `Secure` / `SameSite=Lax`; only its SHA-256 hash is stored, so
+  a database dump cannot forge the initiating device.
+- Opening the link on a **different** device never authenticates that device — see the cross-device
+  example.
+
+## E2E
+
+See [`E2E_RESULTS.md`](./E2E_RESULTS.md) (generated from the live run). Dispatch the
+`magic-link-signin-e2e` workflow to run it against staging.

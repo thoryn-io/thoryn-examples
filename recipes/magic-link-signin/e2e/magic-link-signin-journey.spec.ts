@@ -1,34 +1,26 @@
 /**
- * SSO-3043 (epic SSO-3042) — the `totp-signin` example, driven end-to-end in a real browser against
- * the STAGING SaaS. It is `sandbox-signin` plus ONE added concept: a SECOND FACTOR. A verified user
- * exists in a fresh per-run sandbox; the journey ENROLS a TOTP authenticator for that user, then
- * proves a fresh sign-in is CHALLENGED for the second factor and completes with a computed code.
+ * SSO-3047 (epic SSO-3046) — `magic-link-signin` browser journey: SAME-DEVICE passwordless sign-in.
  *
- * MFA is USER-enrolment-driven: once the user enrols TOTP, every sign-in challenges — so the recipe
- * needs no MFA-specific action, and the whole 2FA behaviour lives here.
+ * Drives the recipe's loopback RP against the staging SaaS, pointed at a FRESH per-run SANDBOX
+ * ENVIRONMENT. A verified user signs in with NO password: on the hosted login they choose "email me a
+ * sign-in link" (identity `POST /auth/magic-link/request`, which also sets the `ML_INIT`
+ * initiating-device cookie). In a sandbox the email is suppressed from real SMTP and captured into the
+ * per-env test inbox (identity `TestModeEmailGate`, channel `magic_link`; read back via
+ * `thoryn env test-emails`). Opening that link IN THE SAME browser context (the matching `ML_INIT`
+ * cookie ⇒ same device) authenticates the clicking session and resumes `/oauth2/authorize` → the RP
+ * protected page.
  *
- * The code is computed locally with the pure RFC-6238 computer in e2e/lib/totp.mjs — the same
- * algorithm a real authenticator app runs, never faked. Enrolment uses the product's self-service
- * MFA API (`POST /mfa/totp/enroll` → {secret}; `/verify` {code}) AS the signed-in user
- * (the browser holds the identity session after the first sign-in); the challenge uses the hosted
- * /mfa/totp/challenge screen (#mfa-form / #code).
- *
- * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │ SCAFFOLD — FIRST-LIVE-CONFIRM seams (validated on the first live run, like the   │
- * │ original sandbox-signin): (a) the self-service MFA enrol API base + path          │
- * │ (config.identityBaseUrl + /mfa/totp/enroll) and whether it needs the     │
- * │ XSRF double-submit header (handled defensively below); (b) that a TOTP-enrolled   │
- * │ user is challenged at /mfa/totp/challenge on a fresh sign-in. If a seam differs,   │
- * │ RECORD the real shape — do not fake a pass.                                       │
- * └─────────────────────────────────────────────────────────────────────────────┘
+ * ┌─ FIRST-LIVE-CONFIRM seams (validated on the first live run) ──────────────────────────────────┐
+ * │ (a) the hosted magic-link affordance (#magicLinkToggle → #magicLinkForm → #magicLinkEmail);     │
+ * │ (b) the sandbox test-inbox captures the magic-link on channel `magic_link` with the consume     │
+ * │     link as its actionLink; (c) opening the link SAME-device authenticates + resumes to /protected.│
+ * │ If a seam differs, fix the selector/channel here — do not fake.                                 │
+ * └────────────────────────────────────────────────────────────────────────────────────────────────┘
  */
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { totp, secretFromOtpauth } from "../../../e2e/lib/totp.mjs";
+import { findMagicLinkViaInbox } from "../../../e2e/lib/test-inbox.mjs";
 import { STEPS } from "./scenario.mjs";
-
-const MFA_ENROLL = "/mfa/totp/enroll";
-const MFA_ENROLL_VERIFY = "/mfa/totp/enroll/verify";
 
 /** RP landing → "Sign in with Thoryn" → the sandbox's hub-federated hosted login. */
 async function startSignInFromRp(page: Page): Promise<void> {
@@ -36,87 +28,58 @@ async function startSignInFromRp(page: Page): Promise<void> {
   await page.getByRole("link", { name: /sign in with thoryn/i }).click();
 }
 
-/** Fill + submit the hosted password form (identity login.html #passwordForm). */
-async function submitPassword(page: Page, email: string): Promise<void> {
-  await expect(page.locator("#passwordForm")).toBeVisible({ timeout: 30_000 });
-  await page.locator("#passwordEmail").fill(email);
-  await page.locator("#password").fill(config.password);
-  await page.locator("#passwordForm button[type=submit]").click();
-}
-
-/** The XSRF double-submit token, if the identity chain set one — sent as the header Spring expects. */
-async function xsrfHeader(context: BrowserContext): Promise<Record<string, string>> {
-  const cookie = (await context.cookies()).find((c) => c.name === "XSRF-TOKEN");
-  return cookie ? { "X-XSRF-TOKEN": cookie.value } : {};
-}
-
-/**
- * Enrol TOTP for the signed-in user via the self-service API, and return the base32 secret so the
- * challenge step can compute codes. The browser already holds the identity session (first sign-in),
- * and page.request reuses its cookies; the enrol→verify pair shares one session (the pending secret
- * is session-bound server-side).
- */
-async function enrollTotp(page: Page, context: BrowserContext): Promise<string> {
-  const base = config.identityBaseUrl;
-  // Seed the XSRF cookie (a hosted GET on the identity origin) before the state-changing POSTs.
-  await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" }).catch(() => {});
-  const headers = { "Content-Type": "application/json", ...(await xsrfHeader(context)) };
-
-  const enrollRes = await page.request.post(`${base}${MFA_ENROLL}`, { headers, data: {}, ignoreHTTPSErrors: true });
-  expect(enrollRes.ok(), `TOTP enrol should return 2xx (${enrollRes.status()})`).toBeTruthy();
-  const body = (await enrollRes.json()) as { secret?: string; qrCodeUri?: string };
-  const secret = secretFromOtpauth(body.secret) ?? secretFromOtpauth(body.qrCodeUri);
-  expect(secret, "the enrol response carries a base32 secret (or an otpauth qrCodeUri)").toBeTruthy();
-
-  const verifyRes = await page.request.post(`${base}${MFA_ENROLL_VERIFY}`, {
-    headers,
-    data: { code: totp(secret!) },
-    ignoreHTTPSErrors: true,
+/** Reveal the magic-link affordance on the hosted login, enter the email, and request the link. */
+async function requestMagicLink(page: Page, email: string): Promise<void> {
+  await expect(page.locator("#magicLinkToggle")).toBeVisible({ timeout: 30_000 });
+  await page.locator("#magicLinkToggle").click();
+  await page.locator("#magicLinkEmail").fill(email);
+  await page.locator("#magicLinkForm button[type=submit]").click();
+  // The hosted page confirms the send (constant-time, no enumeration) in #magicLinkStatus.
+  await expect(page.locator("#magicLinkStatus")).toContainText(/sign-in link|check your email|expires/i, {
+    timeout: 30_000,
   });
-  expect(verifyRes.ok(), `TOTP enrol verify should return 2xx (${verifyRes.status()})`).toBeTruthy();
-  return secret!;
 }
 
-test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
-  test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
-    browser,
-  }) => {
+/** Poll the sandbox test-inbox for the captured magic-link (the single-use consume URL). */
+async function captureMagicLink(email: string): Promise<string> {
+  let link: string | null = null;
+  await expect
+    .poll(async () => (link = await findMagicLinkViaInbox(config.cli, email)), {
+      message: "the magic-link email is captured in the sandbox test inbox (channel magic_link)",
+      timeout: 60_000,
+      intervals: [1_000, 2_000, 3_000, 5_000],
+    })
+    .toBeTruthy();
+  return link!;
+}
+
+test.describe("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047)", () => {
+  test("full journey: request a magic link → open it on the same device → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
-    const email = `${config.cli.envSlug || "totp-signin"}@example.com`;
+    const email = `${config.cli.envSlug || "magic-link-signin"}@example.com`;
 
     try {
-      // 1) First sign-in with the password only (the user has no second factor yet).
-      await test.step(STEPS.firstSignin, async () => {
+      // 1) Start the OAuth flow and request a passwordless sign-in link (sets the ML_INIT cookie).
+      await test.step(STEPS.request, async () => {
         await startSignInFromRp(page);
-        await submitPassword(page, email);
-        await expect(
-          page.getByText(/you are signed in as/i),
-          "the first (password-only) sign-in reaches the RP protected page",
-        ).toBeVisible({ timeout: 30_000 });
+        await requestMagicLink(page, email);
       });
 
-      // 2) Enrol a TOTP authenticator for the now-signed-in user (self-service MFA API).
-      let secret = "";
-      await test.step(STEPS.enroll, async () => {
-        secret = await enrollTotp(page, context);
+      // 2) Capture the link from the sandbox test inbox.
+      let link = "";
+      await test.step(STEPS.capture, async () => {
+        link = await captureMagicLink(email);
       });
 
-      // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
-      await test.step(STEPS.challenge, async () => {
-        await context.clearCookies(); // drop the session so sign-in runs from scratch
-        await startSignInFromRp(page);
-        await submitPassword(page, email);
-        await expect(
-          page.locator("#mfa-form #code"),
-          "a TOTP-enrolled user is challenged for the second factor on sign-in",
-        ).toBeVisible({ timeout: 30_000 });
-        await page.locator("#mfa-form #code").fill(totp(secret));
-        await page.locator("#mfa-form button[type=submit]").click();
+      // 3) Open the link ON THE SAME device (this context still carries ML_INIT) → authenticated →
+      //    the OAuth flow resumes to the RP protected page. No code to type: same-device is seamless.
+      await test.step(STEPS.consume, async () => {
+        await page.goto(link, { waitUntil: "domcontentloaded" });
         await expect(
           page.getByText(/you are signed in as/i),
-          "the computed TOTP completes the second factor and reaches the RP protected page",
+          "opening the magic link on the same device signs the user in and resumes to the RP",
         ).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
       });
@@ -125,29 +88,25 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
     }
   });
 
-  test("error path: a wrong TOTP code is rejected at the challenge", async ({ browser }) => {
-    test.setTimeout(180_000);
+  test("error path: an invalid/expired magic link does not sign the user in", async ({ browser }) => {
+    test.setTimeout(120_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
-    const email = `${config.cli.envSlug || "totp-signin"}@example.com`;
+    const email = `${config.cli.envSlug || "magic-link-signin"}@example.com`;
     try {
-      // Enrol first (so the account is TOTP-gated), then re-sign-in and enter a bad code.
+      // Request a real link to discover the identity origin, then consume a GARBAGE token on it.
       await startSignInFromRp(page);
-      await submitPassword(page, email);
-      await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page, context);
+      await requestMagicLink(page, email);
+      const real = await captureMagicLink(email);
+      const bad = real.replace(/token=.*$/, "token=not-a-real-token");
 
-      await context.clearCookies();
-      await startSignInFromRp(page);
-      await submitPassword(page, email);
-      await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
-      await page.locator("#mfa-form #code").fill("000000");
-      await page.locator("#mfa-form button[type=submit]").click();
+      await page.goto(bad, { waitUntil: "domcontentloaded" });
       await expect(
-        page.locator("#error-message"),
-        "a wrong TOTP code surfaces the inline error and does not sign the user in",
-      ).toBeVisible();
-      await expect(page.getByText(/you are signed in as/i)).toHaveCount(0);
+        page.getByText(/you are signed in as/i),
+        "a bogus magic-link token must NOT sign the user in",
+      ).toHaveCount(0);
+      // identity renders the dedicated magic-link-error page for an invalid/expired/consumed token.
+      await expect(page.getByText(/link|expired|invalid|sign-in/i).first()).toBeVisible();
     } finally {
       await context.close();
     }

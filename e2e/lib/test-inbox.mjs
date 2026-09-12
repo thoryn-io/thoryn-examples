@@ -93,3 +93,51 @@ export async function findVerificationLinkViaInbox(cfg, recipient) {
   if (isVerifyLink(rec?.actionLink)) return rec.actionLink;
   return extractVerificationLink(`${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`);
 }
+
+
+const isMagicLink = (s) => typeof s === "string" && /\/auth\/magic-link\/consume\?token=/.test(s);
+
+/**
+ * SSO-3047 — sibling of [findVerificationLinkViaInbox] for the passwordless MAGIC-LINK flow.
+ * In a sandbox, the magic-link email is suppressed from real SMTP (identity `TestModeEmailGate`,
+ * channel `magic_link`) and captured into the per-env test inbox (SandboxInboxController). We read
+ * it back through the supported `thoryn env test-emails` surface and return the single-use sign-in
+ * link (`/auth/magic-link/consume?token=…`), or null if it hasn't been captured yet — wrap in
+ * Playwright's `expect.poll`, exactly like the verification-link capture.
+ *
+ * @param {TestInboxConfig} cfg
+ * @param {string} recipient
+ * @returns {Promise<string | null>}
+ */
+export async function findMagicLinkViaInbox(cfg, recipient) {
+  if (!cfg.jarPath || !cfg.envSlug) {
+    throw new Error(
+      "test-inbox capture needs THORYN_JAR + SANDBOX_ENV_SLUG (the magic-link journey runs the CLI against the per-run sandbox)",
+    );
+  }
+  const list = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "list",
+    "--env", cfg.envSlug,
+    "--to", recipient,
+    "--channel", "magic_link",
+    "--limit", "50",
+    "--output", "json",
+  ]);
+  const emails = emailsOf(list);
+  if (emails.length === 0) return null;
+
+  // Newest-first (created_at DESC); element 0 is the most recently requested link.
+  const newest = emails[0];
+  if (isMagicLink(newest?.actionLink)) return newest.actionLink;
+
+  // Defensive fallback: fetch the single record and scan its body for the consume URL.
+  const id = newest?.id;
+  if (!id) return null;
+  const rec = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "get", String(id), "--env", cfg.envSlug, "--output", "json",
+  ]);
+  if (isMagicLink(rec?.actionLink)) return rec.actionLink;
+  const body = `${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`;
+  const m = body.match(/https?:\/\/[^\s"'<>]+\/auth\/magic-link\/consume\?token=[^\s"'<>]+/);
+  return m ? m[0] : null;
+}

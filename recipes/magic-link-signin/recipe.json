@@ -1,8 +1,8 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
-  "id": "totp-signin",
+  "id": "magic-link-signin",
   "version": "1.0.0",
-  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, enrol a TOTP authenticator, and prove the second-factor challenge on sign-in; then hard-delete the sandbox.",
+  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, then sign in PASSWORDLESS via a single-use email magic-link opened on the SAME device; then hard-delete the sandbox.",
   "requires": {
     "scopes": [
       "tenant:environments.write",
@@ -21,18 +21,18 @@
     {
       "name": "envSlug",
       "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
-      "default": "totp-signin-{{generate.slug8}}",
+      "default": "magic-link-{{generate.slug8}}",
       "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     },
     {
       "name": "envName",
       "prompt": "Display name for the ephemeral sandbox environment",
-      "default": "TOTP Sign-in"
+      "default": "Magic-link Sign-in"
     },
     {
       "name": "appName",
       "prompt": "Display name for the ephemeral OAuth client",
-      "default": "TOTP Sign-in App {{generate.slug8}}"
+      "default": "Magic-link Sign-in App {{generate.slug8}}"
     }
   ],
   "steps": [
@@ -71,7 +71,7 @@
     {
       "id": "user",
       "action": "identity.registerUser",
-      "description": "Register a verified, sign-in-able user IN the sandbox; the journey enrols TOTP for this user.",
+      "description": "Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly via a magic link.",
       "with": {
         "email": "{{envSlug}}@example.com",
         "password": "Example-Signin-Pw1!",

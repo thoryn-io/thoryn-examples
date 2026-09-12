@@ -1,0 +1,122 @@
+# SSO-3039 (epic SSO-2871) — `branded-signin`: the same ephemeral-sandbox sign-in as `sandbox-signin`,
+# with one added concept — STYLING the hosted sign-in screen. It provisions a throwaway SANDBOX
+# ENVIRONMENT in a STANDING workspace, a loopback OAuth client + a sign-in-able user in it, then
+# applies a per-ENVIRONMENT login theme (logo / colors / radius / light|dark) so the hosted login the
+# end user sees carries YOUR brand — and hard-deletes the whole sandbox (theme included) on teardown.
+#
+# Why a SEPARATE recipe (not a step on `sandbox-signin`): each example teaches ONE concept. sandbox-signin
+# stays the minimal "sign in against an ephemeral sandbox" baseline; branded-signin is the "…and brand
+# the login screen" example, so the branding is unmistakable and independently runnable.
+#
+# The styling uses the SAME customer-plane surface the `thoryn branding set` CLI command wraps
+# (product-api `PUT /api/v1/login-experience/branding`, SSO-3037) — the recipe is just the declarative
+# form. identity renders the fields as CSS custom properties (`--brand-primary`, `--brand-bg`,
+# `--brand-radius`) in the hosted login template; the server validates them (hex colors, radius 0-64,
+# theme enum, https logo) and enforces a WCAG-AA contrast guard.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter, SSO-2961 / SSO-3037):
+#   • env.create → product-api `POST /api/v1/environments`; the interpreter switches the effective
+#     environment to the new sandbox so EVERY later step provisions INTO it (X-Thoryn-Environment).
+#   • applications.create / identity.registerUser → created in the sandbox.
+#   • tenant.configureLoginTheme → product-api `PUT /api/v1/login-experience/branding`
+#     (`tenant:idp.write`), scoped to the active sandbox env. Its resolved `theme` / `primaryColor`
+#     are addressable as `{{theme.theme}}` / `{{theme.primaryColor}}`.
+#   • teardown env.delete → `DELETE /api/v1/environments/{id}` (SANDBOX-ONLY; cascades the client, the
+#     user, and the branding row — nothing branded outlives the environment).
+apiVersion: thoryn.io/examples/v1
+id: branded-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, STYLE its hosted sign-in screen (logo/colors/theme), sign in, then hard-delete the sandbox.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), applications.create (write) + the applications.get verify (read),
+    # identity.registerUser (users.write), and tenant.configureLoginTheme (idp.write — style the login).
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+    - tenant:idp.write
+  # The release that carries the `tenant.configureLoginTheme` recipe action (SSO-3037), on top of the
+  # SSO-2968 fetched-catalog + env.create/env.delete + identity.registerUser actions. The CLI refuses an
+  # older build, so a runner must be on cli >= 0.5.0.
+  minCliVersion: 0.5.0
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "brand-signin-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Branded Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Branded Sign-in App {{generate.slug8}}"
+  - name: primaryColor
+    prompt: "Primary/brand color for the hosted sign-in screen (CSS hex)"
+    default: "#7c3aed"
+    validate: "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+  - name: loginTheme
+    prompt: "Color theme: light | dark | auto"
+    default: "light"
+    validate: "^(light|dark|auto)$"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: theme
+    action: tenant.configureLoginTheme
+    description: Style the sandbox's hosted sign-in screen — brand color, radius, theme (SSO-3037). Applied to THIS env only.
+    with:
+      # The star of this recipe. A distinctive primary (not the platform default #2563eb) so the branded
+      # login is unmistakable. Server-validated + WCAG-AA contrast-guarded; rendered as the
+      # `--brand-primary` CSS variable in the hosted login template.
+      primaryColor: "{{primaryColor}}"
+      backgroundColor: "#ffffff"
+      borderRadiusPx: 10
+      theme: "{{loginTheme}}"
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox so `examples run` can sign in end to end.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown (child-first): delete the app, then hard-delete the sandbox it lives in. The hard-delete
+# cascades the client, the user, AND the branding row — nothing branded outlives the environment.
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

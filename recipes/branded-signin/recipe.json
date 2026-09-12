@@ -1,0 +1,127 @@
+{
+  "apiVersion": "thoryn.io/examples/v1",
+  "id": "branded-signin",
+  "version": "1.0.0",
+  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, STYLE its hosted sign-in screen (logo/colors/theme), sign in, then hard-delete the sandbox.",
+  "requires": {
+    "scopes": [
+      "tenant:environments.write",
+      "tenant:applications.write",
+      "tenant:applications.read",
+      "tenant:users.write",
+      "tenant:idp.write"
+    ],
+    "minCliVersion": "0.5.0"
+  },
+  "params": [
+    {
+      "name": "workspaceSlug",
+      "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envSlug",
+      "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
+      "default": "brand-signin-{{generate.slug8}}",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envName",
+      "prompt": "Display name for the ephemeral sandbox environment",
+      "default": "Branded Sign-in"
+    },
+    {
+      "name": "appName",
+      "prompt": "Display name for the ephemeral OAuth client",
+      "default": "Branded Sign-in App {{generate.slug8}}"
+    },
+    {
+      "name": "primaryColor",
+      "prompt": "Primary/brand color for the hosted sign-in screen (CSS hex)",
+      "default": "#7c3aed",
+      "validate": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    {
+      "name": "loginTheme",
+      "prompt": "Color theme: light | dark | auto",
+      "default": "light",
+      "validate": "^(light|dark|auto)$"
+    }
+  ],
+  "steps": [
+    {
+      "id": "env",
+      "action": "env.create",
+      "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.",
+      "with": {
+        "slug": "{{envSlug}}",
+        "name": "{{envName}}"
+      }
+    },
+    {
+      "id": "app",
+      "action": "applications.create",
+      "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.",
+      "with": {
+        "displayName": "{{appName}}",
+        "clientType": "public",
+        "grantTypes": [
+          "authorization_code"
+        ],
+        "scopes": [
+          "openid",
+          "profile",
+          "email"
+        ],
+        "redirectUris": [
+          "http://127.0.0.1/callback"
+        ],
+        "postLogoutRedirectUris": [
+          "http://127.0.0.1/"
+        ]
+      }
+    },
+    {
+      "id": "theme",
+      "action": "tenant.configureLoginTheme",
+      "description": "Style the sandbox's hosted sign-in screen — brand color, radius, theme (SSO-3037). Applied to THIS env only.",
+      "with": {
+        "primaryColor": "{{primaryColor}}",
+        "backgroundColor": "#ffffff",
+        "borderRadiusPx": 10,
+        "theme": "{{loginTheme}}"
+      }
+    },
+    {
+      "id": "user",
+      "action": "identity.registerUser",
+      "description": "Register a verified, sign-in-able user IN the sandbox so `examples run` can sign in end to end.",
+      "with": {
+        "email": "{{envSlug}}@example.com",
+        "password": "Example-Signin-Pw1!",
+        "givenName": "Demo",
+        "familyName": "User",
+        "emailVerified": true
+      }
+    }
+  ],
+  "verify": [
+    {
+      "assert": "applications.get",
+      "id": "{{app.clientId}}",
+      "expect": {
+        "status": "active"
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "action": "applications.delete",
+      "id": "{{app.clientId}}"
+    },
+    {
+      "action": "env.delete",
+      "id": "{{env.id}}"
+    }
+  ]
+}

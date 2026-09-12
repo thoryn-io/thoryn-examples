@@ -75,6 +75,10 @@ export default defineConfig({
     {
       name: "totp-signin",
       testDir: "../recipes/totp-signin/e2e",
+      // retries:0 — the run uses ONE per-run user; a retry re-runs after attempt 1 already enrolled
+      // TOTP, so the "password-only first sign-in" step is then MFA-challenged and can't reach
+      // /protected. The journey is deterministic; a retry only corrupts the fixture.
+      retries: 0,
       use: { ...devices["Desktop Chrome"] },
     },
     {

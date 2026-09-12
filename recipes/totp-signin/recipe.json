@@ -1,0 +1,103 @@
+{
+  "apiVersion": "thoryn.io/examples/v1",
+  "id": "totp-signin",
+  "version": "1.0.0",
+  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, enrol a TOTP authenticator, and prove the second-factor challenge on sign-in; then hard-delete the sandbox.",
+  "requires": {
+    "scopes": [
+      "tenant:environments.write",
+      "tenant:applications.write",
+      "tenant:applications.read",
+      "tenant:users.write"
+    ],
+    "minCliVersion": "0.3.7"
+  },
+  "params": [
+    {
+      "name": "workspaceSlug",
+      "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envSlug",
+      "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
+      "default": "totp-signin-{{generate.slug8}}",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envName",
+      "prompt": "Display name for the ephemeral sandbox environment",
+      "default": "TOTP Sign-in"
+    },
+    {
+      "name": "appName",
+      "prompt": "Display name for the ephemeral OAuth client",
+      "default": "TOTP Sign-in App {{generate.slug8}}"
+    }
+  ],
+  "steps": [
+    {
+      "id": "env",
+      "action": "env.create",
+      "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.",
+      "with": {
+        "slug": "{{envSlug}}",
+        "name": "{{envName}}"
+      }
+    },
+    {
+      "id": "app",
+      "action": "applications.create",
+      "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.",
+      "with": {
+        "displayName": "{{appName}}",
+        "clientType": "public",
+        "grantTypes": [
+          "authorization_code"
+        ],
+        "scopes": [
+          "openid",
+          "profile",
+          "email"
+        ],
+        "redirectUris": [
+          "http://127.0.0.1/callback"
+        ],
+        "postLogoutRedirectUris": [
+          "http://127.0.0.1/"
+        ]
+      }
+    },
+    {
+      "id": "user",
+      "action": "identity.registerUser",
+      "description": "Register a verified, sign-in-able user IN the sandbox; the journey enrols TOTP for this user.",
+      "with": {
+        "email": "{{envSlug}}@example.com",
+        "password": "Example-Signin-Pw1!",
+        "givenName": "Demo",
+        "familyName": "User",
+        "emailVerified": true
+      }
+    }
+  ],
+  "verify": [
+    {
+      "assert": "applications.get",
+      "id": "{{app.clientId}}",
+      "expect": {
+        "status": "active"
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "action": "applications.delete",
+      "id": "{{app.clientId}}"
+    },
+    {
+      "action": "env.delete",
+      "id": "{{env.id}}"
+    }
+  ]
+}

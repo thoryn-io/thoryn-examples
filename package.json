@@ -2,7 +2,7 @@
   "name": "@thoryn/examples-e2e",
   "version": "0.0.0",
   "private": true,
-  "description": "Shared Playwright harness for the example recipes' browser E2E. Each recipe owns its spec under recipes/<id>/e2e/ (colocated with the recipe it validates); this root package holds the single node_modules so those colocated specs resolve @playwright/test, plus the reusable harness under e2e/ (staging/Mailpit config + email capture in e2e/lib, the one Playwright config with a project per recipe, and the per-recipe E2E_RESULTS.md reporter). SCAFFOLD — activates once the CI secrets exist and a first live run passes.",
+  "description": "Shared Playwright harness for the example recipes' browser E2E. Each recipe owns its spec under recipes/<id>/e2e/ (colocated with the recipe it validates); this root package holds the single node_modules so those colocated specs resolve @playwright/test, plus the reusable harness under e2e/ (staging/Mailpit config + email capture in e2e/lib, the one Playwright config with a project per recipe, and the per-recipe E2E_RESULTS.md reporter). SCAFFOLD \u2014 activates once the CI secrets exist and a first live run passes.",
   "type": "module",
   "scripts": {
     "test": "playwright test -c e2e/playwright.config.ts",
@@ -13,7 +13,8 @@
     "typecheck": "tsc -p e2e/tsconfig.json --noEmit",
     "install-browser": "playwright install --with-deps chromium",
     "report": "playwright show-report e2e/playwright-report",
-    "results:init": "node e2e/scripts/init-e2e-results.mjs"
+    "results:init": "node e2e/scripts/init-e2e-results.mjs",
+    "test:totp": "playwright test -c e2e/playwright.config.ts --project=totp-signin"
   },
   "devDependencies": {
     "@playwright/test": "1.48.2",

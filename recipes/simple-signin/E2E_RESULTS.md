@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-12T10:16:20.458Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ✅ passed
+**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
+**Generated:** 2026-09-12T10:51:40.592Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,11 +20,32 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | RP → “Sign in with Thoryn” → the tenant hosted login renders via the workspace hub | ⏳ not yet run |
-| 2 | Follow the self-service sign-up path and register a brand-new end user | ⏳ not yet run |
-| 3 | Capture the REAL verification email from the in-job Mailpit sink | ⏳ not yet run |
-| 4 | Follow the captured verify-email link → “Your email is verified” | ⏳ not yet run |
-| 5 | Return to the RP, sign in with the verified creds → land on /protected | ⏳ not yet run |
+| 1 | RP → “Sign in with Thoryn” → the tenant hosted login renders via the workspace hub | ✅ passed |
+| 2 | Follow the self-service sign-up path and register a brand-new end user | ✅ passed |
+| 3 | Capture the REAL verification email from the in-job Mailpit sink | ✅ passed |
+| 4 | Follow the captured verify-email link → “Your email is verified” | ✅ passed |
+| 5 | Return to the RP, sign in with the verified creds → land on /protected | ✅ passed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 15.3s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 1.0s |
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+| Mail sink (local API) | http://localhost:8025 |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34689431886)
+- [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

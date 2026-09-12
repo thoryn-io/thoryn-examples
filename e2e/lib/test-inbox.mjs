@@ -124,7 +124,24 @@ export async function findMagicLinkViaInbox(cfg, recipient) {
     "--output", "json",
   ]);
   const emails = emailsOf(list);
-  if (emails.length === 0) return null;
+  if (emails.length === 0) {
+    // SSO-3051 diagnostic: the magic_link-filtered inbox is empty. Dump the WHOLE inbox ONCE so we can
+    // tell "no email generated at all" (env/user-resolution gap at /auth/magic-link/request) from
+    // "email present under another channel / field" (a capture-field issue). Logged once, best-effort.
+    if (!globalThis.__mlInboxDumped) {
+      globalThis.__mlInboxDumped = true;
+      try {
+        const all = await runCliJson(cfg.jarPath, [
+          "env", "test-emails", "list", "--env", cfg.envSlug, "--limit", "50", "--output", "json",
+        ]);
+        const rows = emailsOf(all).map((e) => ({ to: e?.toAddress ?? e?.to, channel: e?.channel, actionLink: e?.actionLink }));
+        console.error(`[ml-diagnostic] magic_link filter empty for ${recipient}. Whole inbox (${rows.length}): ${JSON.stringify(rows)}`);
+      } catch (e) {
+        console.error(`[ml-diagnostic] inbox dump failed: ${e}`);
+      }
+    }
+    return null;
+  }
 
   // Newest-first (created_at DESC); element 0 is the most recently requested link.
   const newest = emails[0];

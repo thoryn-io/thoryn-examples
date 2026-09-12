@@ -138,7 +138,10 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
           "a TOTP-enrolled user is challenged for the second factor on sign-in",
         ).toBeVisible({ timeout: 30_000 });
         await page.locator("#mfa-form #code").fill(totp(secret));
-        await page.locator("#mfa-form button[type=submit]").click();
+        // The challenge form verifies via an inline-JS fetch to /mfa/totp/verify on submit; pressing
+        // Enter in the code field is the user-faithful trigger (a plain button click can race the
+        // handler attach). On a rejected code the page reveals #error-message instead of navigating.
+        await page.locator("#mfa-form #code").press("Enter");
         await expect(
           page.getByText(/you are signed in as/i),
           "the computed TOTP completes the second factor and reaches the RP protected page",
@@ -167,7 +170,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       await submitPassword(page, email);
       await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
       await page.locator("#mfa-form #code").fill("000000");
-      await page.locator("#mfa-form button[type=submit]").click();
+      await page.locator("#mfa-form #code").press("Enter");
       await expect(
         page.locator("#error-message"),
         "a wrong TOTP code surfaces the inline error and does not sign the user in",

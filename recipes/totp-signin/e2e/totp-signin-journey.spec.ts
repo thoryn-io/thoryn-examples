@@ -191,16 +191,15 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
     const page = await context.newPage();
     const email = `${config.cli.envSlug || "totp-signin"}@example.com`;
     try {
-      // Enrol first (so the account is TOTP-gated), then re-sign-in and enter a bad code.
-      await startSignInFromRp(page);
-      const identityOrigin = await submitPassword(page, email);
-      await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page, identityOrigin);
-
-      await context.clearCookies();
+      // The full-journey test above already enrolled TOTP for this per-run user (the recipe
+      // provisions ONE user and this file runs serially, workers:1), and enrolment is server-side,
+      // so a fresh sign-in here is challenged for the second factor. Sign in, then enter a bad code.
       await startSignInFromRp(page);
       await submitPassword(page, email);
-      await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
+      await expect(
+        page.locator("#mfa-form #code"),
+        "the TOTP-enrolled user is challenged for the second factor on sign-in",
+      ).toBeVisible({ timeout: 30_000 });
       const rejected = await verifyTotpChallenge(page, "000000");
       expect(
         rejected.status >= 400 || !!rejected.data.error,

@@ -1,7 +1,21 @@
-# Example e2e harness (SSO-2909 / SSO-2912 / SSO-2942)
+# Example e2e harness (SSO-2909 / SSO-2912 / SSO-2942 / SSO-2969)
 
-> **SCAFFOLD — NOT YET ACTIVATED.** This harness drives the `simple-signin` browser
-> journey end-to-end against the **staging SaaS** in a real browser. It cannot go green
+This is the **shared** Playwright harness for the example recipes' browser E2E. Each
+recipe **owns its spec**, colocated with the recipe it validates:
+
+| Recipe | Spec | Workflow | Result |
+|---|---|---|---|
+| [`simple-signin`](../recipes/simple-signin/) | [`recipes/simple-signin/e2e/`](../recipes/simple-signin/e2e/) | `example-e2e.yml` | [`E2E_RESULTS.md`](../recipes/simple-signin/E2E_RESULTS.md) |
+| [`sandbox-signin`](../recipes/sandbox-signin/) | [`recipes/sandbox-signin/e2e/`](../recipes/sandbox-signin/e2e/) | `sandbox-e2e.yml` | [`E2E_RESULTS.md`](../recipes/sandbox-signin/E2E_RESULTS.md) |
+
+The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
+there is no duplicated setup: the staging/Mailpit config + email capture (`lib/`), the one
+Playwright config with a project per recipe (`playwright.config.ts`), and the per-recipe
+`E2E_RESULTS.md` reporter (`lib/e2e-results-reporter.mjs`). The npm package is **rooted at
+the repo root** (a single `node_modules`) so the colocated specs resolve `@playwright/test`.
+
+> **SCAFFOLD — NOT YET ACTIVATED.** The harness drives each recipe's browser journey
+> end-to-end against the **staging SaaS** in a real browser. It cannot go green
 > until the operator completes the one-time **CI provisioning setup** (standing workspace
 > + `client_credentials` API key — see the repo [`README.md`](../README.md)) **and** a
 > first live run confirms the three `LIVE-CONFIRM` seams noted in the spec. Until then
@@ -63,9 +77,12 @@ started with `MP_SMTP_AUTH_ALLOW_INSECURE=true` for the same reason, and its SMT
 username/password is a per-run value (`openssl rand -hex 16`) fed to the CLI through a
 `0600` tmp file (never on argv — the CLI has no `--smtp-password <value>` flag).
 
-## The journey (`tests/simple-signin-journey.spec.ts`)
+## The journey (`recipes/<id>/e2e/<id>-journey.spec.ts`)
 
-1. Open the recipe's **real loopback RP** (`../recipes/simple-signin/apps/loopback-rp/server.js`):
+Both recipes share the same Path-B shape (the `sandbox-signin` spec adds a check that the
+RP points at the **sandbox per-env issuer**, and runs against a fresh per-run sandbox):
+
+1. Open the recipe's **real loopback RP** (`../recipes/<id>/apps/loopback-rp/server.js`):
    `/` → "Sign in with Thoryn" → `{workspace-issuer}/oauth2/authorize` → the workspace
    hub federates to the tenant's identity → its hosted login renders.
 2. Follow the hosted login's self-service **Sign up** path → register a unique email
@@ -78,39 +95,85 @@ username/password is a per-run value (`openssl rand -hex 16`) fed to the CLI thr
 
 ## Layout
 
+Shared harness (here in `e2e/`):
+
 | Path | Purpose |
 |---|---|
-| `lib/config.ts` | staging + Mailpit + RP URLs, env-overridable |
+| `lib/config.ts` | staging + Mailpit + RP URLs, env-overridable — **shared, recipe-agnostic** |
 | `lib/verification-link.mjs` | the pure verify-link parse seam (single source of truth) |
 | `lib/mailbox.ts` | Mailpit HTTP-API capture (search → body → parse; list fallback) |
 | `lib/mailbox.parse.test.mjs` | `node:test` unit for the parse seam — runs WITHOUT creds |
-| `tests/simple-signin-journey.spec.ts` | the Path-B journey + a garbage-token error path |
+| `lib/e2e-results-render.mjs` | shared Markdown renderer for `E2E_RESULTS.md` |
+| `lib/e2e-results-reporter.mjs` | Playwright reporter — writes `recipes/<id>/E2E_RESULTS.md` from a live run |
+| `scripts/init-e2e-results.mjs` | seeds the "not yet run" `E2E_RESULTS.md` placeholders (`npm run results:init`) |
+| `playwright.config.ts` | one config; a **project per recipe** (`simple-signin`, `sandbox-signin`) with `testDir` → the recipe's `e2e/` |
+
+Colocated with each recipe:
+
+| Path | Purpose |
+|---|---|
+| `../recipes/<id>/e2e/<id>-journey.spec.ts` | the recipe's Path-B journey + a garbage-token error path |
+| `../recipes/<id>/e2e/scenario.mjs` | declared scenario + step titles (single source for the spec, reporter, and init) |
+| `../recipes/<id>/E2E_RESULTS.md` | generated coverage + latest-result report (see below) |
+
+The npm package is at the **repo root** (`../package.json`), so `npm` commands run from there.
 
 ## Run
 
 ```sh
+# From the REPO ROOT (the package lives there so the colocated specs resolve @playwright/test):
 npm ci
 
 # The one thing runnable without staging creds — the parse-seam unit test:
 npm run test:unit
 
-# Type-check the harness:
+# Type-check the whole harness (shared lib + both recipes' colocated specs):
 npm run typecheck
 
-# Against staging (needs a provisioned workspace, a running loopback RP, and a local
+# List the discovered specs across both recipe projects (no staging needed):
+npx playwright test -c e2e/playwright.config.ts --list
+
+# (Re)seed the per-recipe E2E_RESULTS.md placeholders from each recipe's scenario.mjs:
+npm run results:init            # add --force to overwrite a live report
+
+# Against staging (needs a provisioned issuer/client, a running loopback RP, and a local
 # Mailpit the workspace BYO-SMTP can reach — e.g. `docker run -p 1025:1025 -p 8025:8025
-# axllent/mailpit` plus your own tunnel to :1025). MAILPIT_BASE_URL defaults to the
-# local API, so you rarely need to set it:
+# axllent/mailpit` plus your own tunnel to :1025). One recipe at a time (the harness is
+# env-driven); the reporter regenerates that recipe's E2E_RESULTS.md:
 RP_BASE_URL=http://127.0.0.1:8471 \
-THORYN_ISSUER=https://<workspace>.hub.stg.thoryn.org \
+THORYN_ISSUER=https://<workspace-or-sandbox-issuer> \
 THORYN_CLIENT_ID=app-XXXXXXXX \
 IDENTITY_BASE_URL=https://identity.stg.thoryn.org \
 MAILPIT_BASE_URL=http://localhost:8025 \
-npm run install-browser && npm test
+npm run install-browser && npm run test:simple     # or: npm run test:sandbox
 ```
 
+> **Node version:** CI pins **Node 20**. Playwright 1.48 + this ESM package can hang on
+> `--list` / test load under **Node 24**; use Node 20 (or 22) locally.
+
 The full CI orchestration lives in
-[`../.github/workflows/example-e2e.yml`](../.github/workflows/example-e2e.yml).
+[`../.github/workflows/example-e2e.yml`](../.github/workflows/example-e2e.yml) (simple-signin)
+and [`../.github/workflows/sandbox-e2e.yml`](../.github/workflows/sandbox-e2e.yml) (sandbox-signin).
+
+## Per-recipe E2E_RESULTS.md (coverage + latest result)
+
+Each recipe carries an `E2E_RESULTS.md` so a reader browsing it sees, at a glance, whether
+it has E2E coverage, what behaviour is tested, and the most recent result. It is
+**generated, never hand-maintained**:
+
+- The seeded placeholder (honest "⏳ not yet run in this environment") comes from
+  `npm run results:init`, rendered from the recipe's `e2e/scenario.mjs`.
+- A **live run overwrites it** via the Playwright reporter with real pass/fail, a
+  per-step table, timings, diagnostics, the target environment (non-secret), and a CI
+  run link. Only the recipe project that actually ran is touched; `--list` never writes.
+
+- On the **default branch** (the `example-e2e` / `sandbox-e2e` workflows fire nightly and on
+  `workflow_dispatch`, both on `main`), a **commit-back step** pushes the regenerated
+  `recipes/<id>/E2E_RESULTS.md` back to `main` (SSO-2969), so the committed copy browsers see is
+  always the latest run — pass or fail. It runs `always()` (records failures too), no-ops when the
+  file is unchanged, rebases onto `main` first (so the two recipes' workflows don't collide), and
+  tags the commit `[skip ci]` so it never re-triggers a run. The Playwright report stays a run
+  artifact (14-day retention); only the small `E2E_RESULTS.md` is committed.
 
 ## Config a maintainer must create to activate
 

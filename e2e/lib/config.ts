@@ -1,9 +1,13 @@
 /**
- * SSO-2909 — config for the simple-signin example e2e harness.
+ * SSO-2909 / SSO-2969 — SHARED config for the example e2e harness, imported by every
+ * recipe's colocated spec (recipes/<id>/e2e/*.spec.ts). It is entirely env-driven and
+ * recipe-agnostic: simple-signin and sandbox-signin differ only in the issuer/client the
+ * workflow injects (a fresh workspace vs. a per-run sandbox per-env issuer), not in the
+ * harness.
  *
  * Defaults target the STAGING SaaS (hub.stg.thoryn.org / identity.stg.thoryn.org).
- * Every value is overridable by env so the same harness runs in CI (example-e2e.yml)
- * and locally against a workspace you provisioned by hand.
+ * Every value is overridable by env so the same harness runs in CI (example-e2e.yml /
+ * sandbox-e2e.yml) and locally against an issuer/client you provisioned by hand.
  *
  * Unlike oathy's e2e/scenario (which drives the SEEDED thoryn-demo client and
  * intercepts the loopback callback), this harness drives the REAL standalone

@@ -9,14 +9,14 @@
  *
  * The code is computed locally with the pure RFC-6238 computer in e2e/lib/totp.mjs — the same
  * algorithm a real authenticator app runs, never faked. Enrolment uses the product's self-service
- * MFA API (`POST /api/v1/me/mfa/totp/enrol` → {secret}; `/verify` {code}) AS the signed-in user
+ * MFA API (`POST /mfa/totp/enroll` → {secret}; `/verify` {code}) AS the signed-in user
  * (the browser holds the identity session after the first sign-in); the challenge uses the hosted
  * /mfa/totp/challenge screen (#mfa-form / #code).
  *
  * ┌─────────────────────────────────────────────────────────────────────────────┐
  * │ SCAFFOLD — FIRST-LIVE-CONFIRM seams (validated on the first live run, like the   │
  * │ original sandbox-signin): (a) the self-service MFA enrol API base + path          │
- * │ (config.identityBaseUrl + /api/v1/me/mfa/totp/enrol) and whether it needs the     │
+ * │ (config.identityBaseUrl + /mfa/totp/enroll) and whether it needs the     │
  * │ XSRF double-submit header (handled defensively below); (b) that a TOTP-enrolled   │
  * │ user is challenged at /mfa/totp/challenge on a fresh sign-in. If a seam differs,   │
  * │ RECORD the real shape — do not fake a pass.                                       │
@@ -27,8 +27,8 @@ import { config } from "../../../e2e/lib/config";
 import { totp, secretFromOtpauth } from "../../../e2e/lib/totp.mjs";
 import { STEPS } from "./scenario.mjs";
 
-const MFA_ENROLL = "/api/v1/me/mfa/totp/enroll";
-const MFA_ENROLL_VERIFY = "/api/v1/me/mfa/totp/enroll/verify";
+const MFA_ENROLL = "/mfa/totp/enroll";
+const MFA_ENROLL_VERIFY = "/mfa/totp/enroll/verify";
 
 /** RP landing → "Sign in with Thoryn" → the sandbox's hub-federated hosted login. */
 async function startSignInFromRp(page: Page): Promise<void> {

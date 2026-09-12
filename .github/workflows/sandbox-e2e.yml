@@ -159,14 +159,12 @@ jobs:
           # suppressed from SMTP and captured per-env, so the journey reads it via
           # `thoryn env test-emails`); applications.write+read provision/verify/delete the client;
           # users.write registers the sandbox user (identity.registerUser); email.write (re)points the
-          # standing workspace's BYO-SMTP at the per-run tunnel; idp.write styles the sandbox hosted
-          # sign-in screen (tenant.configureLoginTheme, SSO-3037/SSO-3039). The hub mints a token with
-          # only these — an omitted scope 403s that call. (The CI provisioning key already HOLDS
-          # environments.read + idp.write alongside environments.write per hub V152 — this just
-          # requests them.)
+          # standing workspace's BYO-SMTP at the per-run tunnel. The hub mints a token with only these —
+          # an omitted scope 403s that call. (The CI provisioning key already HOLDS environments.read
+          # alongside environments.write — see README; this just requests it.)
           java -jar thoryn.jar login --client-credentials \
             --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
-            --scope "tenant:environments.write tenant:environments.read tenant:applications.write tenant:applications.read tenant:users.write tenant:email.write tenant:idp.write"
+            --scope "tenant:environments.write tenant:environments.read tenant:applications.write tenant:applications.read tenant:users.write tenant:email.write"
           java -jar thoryn.jar login --status
 
       # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──

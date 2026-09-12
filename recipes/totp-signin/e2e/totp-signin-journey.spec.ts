@@ -27,8 +27,6 @@ import { config } from "../../../e2e/lib/config";
 import { totp, secretFromOtpauth } from "../../../e2e/lib/totp.mjs";
 import { STEPS } from "./scenario.mjs";
 
-const MFA_ENROLL = "/mfa/totp/enroll";
-const MFA_ENROLL_VERIFY = "/mfa/totp/enroll/verify";
 
 /** RP landing → "Sign in with Thoryn" → the sandbox's hub-federated hosted login. */
 async function startSignInFromRp(page: Page): Promise<void> {
@@ -44,36 +42,47 @@ async function submitPassword(page: Page, email: string): Promise<void> {
   await page.locator("#passwordForm button[type=submit]").click();
 }
 
-/** The XSRF double-submit token, if the identity chain set one — sent as the header Spring expects. */
-async function xsrfHeader(context: BrowserContext): Promise<Record<string, string>> {
-  const cookie = (await context.cookies()).find((c) => c.name === "XSRF-TOKEN");
-  return cookie ? { "X-XSRF-TOKEN": cookie.value } : {};
-}
-
 /**
- * Enrol TOTP for the signed-in user via the self-service API, and return the base32 secret so the
- * challenge step can compute codes. The browser already holds the identity session (first sign-in),
- * and page.request reuses its cookies; the enrol→verify pair shares one session (the pending secret
- * is session-bound server-side).
+ * Enrol TOTP for the signed-in user, returning the base32 secret so the challenge step can compute
+ * codes. The self-service MFA enrol/verify endpoints (POST /mfa/totp/enroll[/verify]) live on
+ * identity-service's SESSION (form-login) security chain, which is CSRF-protected via the session
+ * token RENDERED INTO THE PAGE as <meta name="_csrf"> / <meta name="_csrf_header"> — NOT a cookie,
+ * so the XSRF-TOKEN double-submit does not apply. We therefore drive enrolment exactly as the
+ * product's own /account/security JS does: load that page (the real enrolment surface, on the
+ * session chain) to obtain the _csrf meta, then fetch() the endpoints IN THE PAGE so the session
+ * cookie + CSRF header ride along same-origin.
  */
-async function enrollTotp(page: Page, context: BrowserContext): Promise<string> {
+async function enrollTotp(page: Page): Promise<string> {
   const base = config.identityBaseUrl;
-  // Seed the XSRF cookie (a hosted GET on the identity origin) before the state-changing POSTs.
-  await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" }).catch(() => {});
-  const headers = { "Content-Type": "application/json", ...(await xsrfHeader(context)) };
+  // The real enrolment page renders the session _csrf meta; the browser already holds the identity
+  // session from the first sign-in, so that same-session token validates the POSTs.
+  await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" });
 
-  const enrollRes = await page.request.post(`${base}${MFA_ENROLL}`, { headers, data: {}, ignoreHTTPSErrors: true });
-  expect(enrollRes.ok(), `TOTP enrol should return 2xx (${enrollRes.status()})`).toBeTruthy();
-  const body = (await enrollRes.json()) as { secret?: string; qrCodeUri?: string };
-  const secret = secretFromOtpauth(body.secret) ?? secretFromOtpauth(body.qrCodeUri);
+  // Enrol — in-page fetch, mirroring account-security.js (read the _csrf meta, send it as the header).
+  const enroll = await page.evaluate(async () => {
+    const token = document.querySelector('meta[name="_csrf"]')?.getAttribute("content") ?? "";
+    const hdr = document.querySelector('meta[name="_csrf_header"]')?.getAttribute("content") ?? "X-CSRF-TOKEN";
+    const res = await fetch("/mfa/totp/enroll", { method: "POST", headers: { [hdr]: token } });
+    return { status: res.status, body: res.ok ? await res.json() : null };
+  });
+  expect(enroll.status < 300, `TOTP enrol should return 2xx (got ${enroll.status})`).toBeTruthy();
+  const b = (enroll.body ?? {}) as { secret?: string; qrCodeUri?: string };
+  const secret = secretFromOtpauth(b.secret) ?? secretFromOtpauth(b.qrCodeUri);
   expect(secret, "the enrol response carries a base32 secret (or an otpauth qrCodeUri)").toBeTruthy();
 
-  const verifyRes = await page.request.post(`${base}${MFA_ENROLL_VERIFY}`, {
-    headers,
-    data: { code: totp(secret!) },
-    ignoreHTTPSErrors: true,
-  });
-  expect(verifyRes.ok(), `TOTP enrol verify should return 2xx (${verifyRes.status()})`).toBeTruthy();
+  // Verify enrolment with a fresh code (same session → the server's pending secret is bound to it).
+  const code = totp(secret!);
+  const verifyStatus = await page.evaluate(async (code) => {
+    const token = document.querySelector('meta[name="_csrf"]')?.getAttribute("content") ?? "";
+    const hdr = document.querySelector('meta[name="_csrf_header"]')?.getAttribute("content") ?? "X-CSRF-TOKEN";
+    const res = await fetch("/mfa/totp/enroll/verify", {
+      method: "POST",
+      headers: { [hdr]: token, "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    return res.status;
+  }, code);
+  expect(verifyStatus < 300, `TOTP enrol verify should return 2xx (got ${verifyStatus})`).toBeTruthy();
   return secret!;
 }
 
@@ -100,7 +109,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       // 2) Enrol a TOTP authenticator for the now-signed-in user (self-service MFA API).
       let secret = "";
       await test.step(STEPS.enroll, async () => {
-        secret = await enrollTotp(page, context);
+        secret = await enrollTotp(page);
       });
 
       // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
@@ -135,7 +144,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       await startSignInFromRp(page);
       await submitPassword(page, email);
       await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page, context);
+      await enrollTotp(page);
 
       await context.clearCookies();
       await startSignInFromRp(page);

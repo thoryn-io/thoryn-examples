@@ -116,11 +116,25 @@ test.describe("sandbox-signin example — fresh sandbox env → self-service sig
           ).toContain(`${config.issuerBaseUrl}/oauth2/authorize`);
         }
 
+        // SSO-3033: a FRESH per-run sandbox's per-env issuer can lag a few seconds behind env.create
+        // (hub mirror / discovery publish), so wait until its discovery actually serves before driving
+        // the RP — otherwise the authorize → federation → hosted-login chain races the issuer coming up
+        // and the login form never renders in time. Mirrors oathy's sandbox-environment `waitForEnvironment`.
+        if (config.issuerBaseUrl) {
+          await expect
+            .poll(
+              async () =>
+                (await request.get(`${config.issuerBaseUrl}/.well-known/openid-configuration`, { ignoreHTTPSErrors: true })).status(),
+              { message: "the sandbox per-env issuer's discovery is served before sign-in", timeout: 90_000 },
+            )
+            .toBe(200);
+        }
+
         await startSignInFromRp(page);
         await expect(
           page.locator("#passwordForm"),
           "the RP sign-in reaches the identity hosted login via the sandbox hub",
-        ).toBeVisible();
+        ).toBeVisible({ timeout: 30_000 });
       });
 
       // 2) Follow the self-service sign-up path and register a brand-new end user.

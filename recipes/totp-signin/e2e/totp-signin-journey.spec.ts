@@ -170,7 +170,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       await submitPassword(page, email);
       await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
       await page.locator("#mfa-form #code").fill("000000");
-      await page.locator("#mfa-form button[type=submit]").click();
+      await page.locator("#mfa-form #code").press("Enter");
       await expect(
         page.locator("#error-message"),
         "a wrong TOTP code surfaces the inline error and does not sign the user in",

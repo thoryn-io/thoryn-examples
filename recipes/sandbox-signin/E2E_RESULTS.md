@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/sandbox-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-12T10:16:20.454Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ❌ failed
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-12T10:50:12.317Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,11 +20,43 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | RP → “Sign in with Thoryn” → authorize redirects to the SANDBOX per-env issuer, hosted login renders | ⏳ not yet run |
-| 2 | Follow the self-service sign-up path and register a brand-new end user in the sandbox | ⏳ not yet run |
-| 3 | Capture the REAL verification email from the in-job Mailpit sink | ⏳ not yet run |
-| 4 | Follow the captured verify-email link → “Your email is verified” | ⏳ not yet run |
-| 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ⏳ not yet run |
+| 1 | RP → “Sign in with Thoryn” → authorize redirects to the SANDBOX per-env issuer, hosted login renders | ❌ failed |
+| 2 | Follow the self-service sign-up path and register a brand-new end user in the sandbox | ⏭️ skipped |
+| 3 | Capture the REAL verification email from the in-job Mailpit sink | ⏭️ skipped |
+| 4 | Follow the captured verify-email link → “Your email is verified” | ⏭️ skipped |
+| 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ⏭️ skipped |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer | ❌ failed | 15.6s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.7s |
+
+## Diagnostics
+
+```
+[full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer] Error: the RP sign-in reaches the identity hosted login via the sandbox hub
+
+[31mTimed out 15000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: locator('#passwordForm')
+Expected: visible
+```
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org/sbx-signin-34689408663-1 |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+| Mail sink (local API) | http://localhost:8025 |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34689408663)
+- [Playwright HTML report (CI artifact)](the `sandbox-e2e-playwright-report` artifact on the CI run)
 

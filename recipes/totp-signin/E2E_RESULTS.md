@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T17:25:23.062Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-12T17:35:10.037Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,34 +30,36 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 7.1s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 6.8s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 26.5s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 26.4s |
 
 ## Diagnostics
 
 ```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP enrol should return 2xx (got 403)
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: the account portal must be authenticated to enrol TOTP (direct form-login established a session)
 
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+[2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
 
-Received: [31mfalse[39m
-[error path: a wrong TOTP code is rejected at the challenge] Error: TOTP enrol should return 2xx (got 403)
+Expected substring: [32m"/account/security"[39m
+Received string:    [31m"/login"[39m
+[error path: a wrong TOTP code is rejected at the challenge] Error: the account portal must be authenticated to enrol TOTP (direct form-login established a session)
 
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+[2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
 
-Received: [31mfalse[39m
+Expected substring: [32m"/account/security"[39m
+Received string:    [31m"/login"[39m
 ```
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34708091954-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34708512351-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34708091954)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34708512351)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -80,11 +80,19 @@ export default defineConfig({
     {
       name: "magic-link-signin",
       testDir: "../recipes/magic-link-signin/e2e",
+      // retries:0 — magic-link request is rate-limited to 3 sends/email/hour (MagicLinkRateLimiter).
+      // Each run uses ONE per-run email across the happy-path + error-path tests (2 sends); a retry
+      // would push a single run past 3 and self-inflict a rate-limit. The journeys are deterministic.
+      retries: 0,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "magic-link-cross-device-signin",
       testDir: "../recipes/magic-link-cross-device-signin/e2e",
+      // retries:0 — magic-link request is rate-limited to 3 sends/email/hour (MagicLinkRateLimiter).
+      // Each run uses ONE per-run email across the happy-path + error-path tests (2 sends); a retry
+      // would push a single run past 3 and self-inflict a rate-limit. The journeys are deterministic.
+      retries: 0,
       use: { ...devices["Desktop Chrome"] },
     },
   ],

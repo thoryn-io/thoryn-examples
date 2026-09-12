@@ -60,11 +60,24 @@ async function submitPassword(page: Page, email: string): Promise<string> {
  * session chain) to obtain the _csrf meta, then fetch() the endpoints IN THE PAGE so the session
  * cookie + CSRF header ride along same-origin.
  */
-async function enrollTotp(page: Page, identityOrigin: string): Promise<string> {
+async function enrollTotp(page: Page, identityOrigin: string, email: string): Promise<string> {
   const base = identityOrigin;
-  // The real enrolment page renders the session _csrf meta; the browser already holds the identity
-  // session from the first sign-in, so that same-session token validates the POSTs.
+  // The hub-FEDERATED session (from the RP sign-in) does NOT authorize the self-service account
+  // portal — GET /account/security 302s to /login. Establish a real account-portal (form-login)
+  // session by signing in DIRECTLY at identity, mirroring oathy e2e/hosted-login loginViaPassword,
+  // then load /account/security (now authenticated) to read its session _csrf meta.
+  await page.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
+  if (await page.locator("#passwordForm").isVisible().catch(() => false)) {
+    await page.locator("#passwordEmail").fill(email);
+    await page.locator("#password").fill(config.password);
+    await page.locator("#passwordForm button[type=submit]").click();
+    await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20_000 }).catch(() => {});
+  }
   await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" });
+  expect(
+    new URL(page.url()).pathname,
+    "the account portal must be authenticated to enrol TOTP (direct form-login established a session)",
+  ).toContain("/account/security");
 
   // Enrol — in-page fetch, mirroring account-security.js (read the _csrf meta, send it as the header).
   const enroll = await page.evaluate(async () => {
@@ -118,7 +131,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       // 2) Enrol a TOTP authenticator for the now-signed-in user (self-service MFA API).
       let secret = "";
       await test.step(STEPS.enroll, async () => {
-        secret = await enrollTotp(page, identityOrigin);
+        secret = await enrollTotp(page, identityOrigin, email);
       });
 
       // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
@@ -153,7 +166,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       await startSignInFromRp(page);
       const identityOrigin = await submitPassword(page, email);
       await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page, identityOrigin);
+      await enrollTotp(page, identityOrigin, email);
 
       await context.clearCookies();
       await startSignInFromRp(page);

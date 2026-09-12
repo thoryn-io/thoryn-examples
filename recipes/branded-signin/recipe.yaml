@@ -40,7 +40,9 @@ requires:
   # The release that carries the `tenant.configureLoginTheme` recipe action (SSO-3037), on top of the
   # SSO-2968 fetched-catalog + env.create/env.delete + identity.registerUser actions. The CLI refuses an
   # older build, so a runner must be on cli >= 0.5.0.
-  minCliVersion: 0.5.0
+  # 0.6.0 carries the RecipeInterpreter support for the cssVariables input (SSO-3038); 0.5.0 added
+  # the tenant.configureLoginTheme action itself (SSO-3037).
+  minCliVersion: 0.6.0
 
 params:
   - name: workspaceSlug
@@ -95,6 +97,12 @@ steps:
       backgroundColor: "#ffffff"
       borderRadiusPx: 10
       theme: "{{loginTheme}}"
+      # SSO-3038: the allowlisted --thoryn-* CSS-variable map — the extensible styling surface on top
+      # of the fixed fields. A distinct accent (cyan, != the primary) so it's unmistakable and the e2e
+      # can assert it renders; a custom font. Server-validated (hex + safe font-stack) + contrast-guarded.
+      cssVariables:
+        "--thoryn-accent": "#0ea5e9"
+        "--thoryn-font-family": "Georgia, serif"
 
   - id: user
     action: identity.registerUser

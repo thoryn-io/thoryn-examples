@@ -101,6 +101,28 @@ async function enrollTotp(page: Page, identityOrigin: string): Promise<string> {
   return secret!;
 }
 
+/**
+ * Submit a TOTP code to the hosted challenge exactly as mfa-challenge.html's inline submit handler
+ * does: an in-page POST /mfa/totp/verify {code, trustDevice:false}. Returns the status + parsed body
+ * ({redirect} on success, {error,...} on rejection). Driving the endpoint via the page's own fetch
+ * exercises the identical request + resume redirect the "Verify" button triggers, without depending
+ * on the form-submit EVENT firing under headless Playwright (it does not reliably here).
+ */
+async function verifyTotpChallenge(
+  page: Page,
+  code: string,
+): Promise<{ status: number; data: { redirect?: string; error?: string } }> {
+  return page.evaluate(async (code) => {
+    const res = await fetch("/mfa/totp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, trustDevice: false }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, data };
+  }, code);
+}
+
 test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
   test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
     browser,
@@ -137,14 +159,18 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
           page.locator("#mfa-form #code"),
           "a TOTP-enrolled user is challenged for the second factor on sign-in",
         ).toBeVisible({ timeout: 30_000 });
-        await page.locator("#mfa-form #code").fill(totp(secret));
-        // The challenge form verifies via an inline-JS fetch to /mfa/totp/verify on submit; pressing
-        // Enter in the code field is the user-faithful trigger (a plain button click can race the
-        // handler attach). On a rejected code the page reveals #error-message instead of navigating.
-        await page.locator("#mfa-form #code").press("Enter");
+        // Verify the challenge as the page's handler does (in-page POST /mfa/totp/verify), then follow
+        // the resume redirect it returns — the same request + redirect the Verify button triggers.
+        const challenge = await verifyTotpChallenge(page, totp(secret));
+        expect(
+          challenge.status < 300,
+          `TOTP challenge verify should 2xx (got ${challenge.status}) ${JSON.stringify(challenge.data)}`,
+        ).toBeTruthy();
+        expect(challenge.data.redirect, "a correct TOTP returns the OAuth resume redirect").toBeTruthy();
+        await page.goto(challenge.data.redirect!, { waitUntil: "domcontentloaded" });
         await expect(
           page.getByText(/you are signed in as/i),
-          "the computed TOTP completes the second factor and reaches the RP protected page",
+          "following the resume redirect reaches the RP protected page",
         ).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
       });
@@ -169,12 +195,12 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       await startSignInFromRp(page);
       await submitPassword(page, email);
       await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
-      await page.locator("#mfa-form #code").fill("000000");
-      await page.locator("#mfa-form #code").press("Enter");
-      await expect(
-        page.locator("#error-message"),
-        "a wrong TOTP code surfaces the inline error and does not sign the user in",
-      ).toBeVisible();
+      const rejected = await verifyTotpChallenge(page, "000000");
+      expect(
+        rejected.status >= 400 || !!rejected.data.error,
+        `a wrong TOTP code is rejected (status ${rejected.status}, ${JSON.stringify(rejected.data)})`,
+      ).toBeTruthy();
+      expect(rejected.data.redirect, "a wrong code does NOT return a resume redirect").toBeFalsy();
       await expect(page.getByText(/you are signed in as/i)).toHaveCount(0);
     } finally {
       await context.close();

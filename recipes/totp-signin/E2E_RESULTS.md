@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T17:08:53.442Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-12T17:18:29.009Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,18 +30,18 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 7.5s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 7.3s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 5.2s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 5.2s |
 
 ## Diagnostics
 
 ```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP enrol should return 2xx (403)
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP enrol should return 2xx (got 403)
 
 [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
 
 Received: [31mfalse[39m
-[error path: a wrong TOTP code is rejected at the challenge] Error: TOTP enrol should return 2xx (403)
+[error path: a wrong TOTP code is rejected at the challenge] Error: TOTP enrol should return 2xx (got 403)
 
 [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
 
@@ -52,12 +52,12 @@ Received: [31mfalse[39m
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34707255913-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34707762353-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34707255913)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34707762353)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

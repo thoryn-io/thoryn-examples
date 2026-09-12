@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T19:39:48.028Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-12T19:47:31.378Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -20,9 +20,9 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Password sign-in (no second factor yet) reaches the RP protected page | ❌ failed |
-| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ⏭️ skipped |
-| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ⏭️ skipped |
+| 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
+| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ✅ passed |
+| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ❌ failed |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
 
@@ -30,13 +30,13 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 32.8s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 32.7s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 43.4s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 32.4s |
 
 ## Diagnostics
 
 ```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: the first (password-only) sign-in reaches the RP protected page
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: the computed TOTP completes the second factor and reaches the RP protected page
 
 [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
 
@@ -54,12 +54,12 @@ Call log:
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34714651130-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34715077674-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34714651130)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34715077674)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

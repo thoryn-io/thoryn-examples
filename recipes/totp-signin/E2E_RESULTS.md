@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-12T19:47:31.378Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-12T19:53:28.771Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,18 +30,17 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 43.4s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 32.4s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 17.7s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 33.6s |
 
 ## Diagnostics
 
 ```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: the computed TOTP completes the second factor and reaches the RP protected page
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: TOTP challenge verify should 2xx (got 403) {"timestamp":"2026-09-12T19:52:54.408Z","status":403,"error":"Forbidden","path":"/mfa/totp/verify"}
 
-[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
 
-Locator: getByText(/you are signed in as/i)
-Expected: visible
+Received: [31mfalse[39m
 [error path: a wrong TOTP code is rejected at the challenge] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
 
 Locator: getByText(/you are signed in as/i)
@@ -54,12 +53,12 @@ Call log:
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34715077674-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34715378901-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34715077674)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34715378901)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

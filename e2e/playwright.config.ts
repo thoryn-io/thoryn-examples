@@ -67,5 +67,10 @@ export default defineConfig({
       testDir: "../recipes/sandbox-signin/e2e",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "branded-signin",
+      testDir: "../recipes/branded-signin/e2e",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

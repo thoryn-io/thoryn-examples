@@ -1,0 +1,445 @@
+name: branded-e2e
+
+# SSO-2969 (epic SSO-2959) — `sandbox-signin` as a full END-USER browser journey: setup → run →
+# teardown against the STAGING SaaS. Each run provisions its OWN throwaway SANDBOX ENVIRONMENT inside
+# the STANDING workspace (env.create), provisions a loopback OAuth client + a sign-in-able user INTO
+# that sandbox (applications.create + identity.registerUser), then drives a REAL browser journey
+# through the recipe's loopback RP — a genuine self-service sign-up whose verification email is
+# captured from an EPHEMERAL, in-job Mailpit sink (via the standing workspace's BYO-SMTP, SSO-2917) —
+# and finally hard-deletes BOTH the client and the sandbox. This gives per-example isolation WITHOUT
+# creating a new tenant (which a tenant-scoped API key can't do — the SSO-2943 workspace-create gap),
+# reusing the connection contract's machine client, which already holds tenant:environments.write/read
+# alongside the applications scopes.
+#
+# It is the browser-driven sibling of conformance.yml (apply/verify/teardown, no browser) and mirrors
+# example-e2e.yml's rig (Mailpit + public SMTP tunnel + BYO-SMTP + Playwright harness) — the one
+# difference is WHERE the app lives: example-e2e provisions an ephemeral app directly in the standing
+# workspace (`ci-signin`); sandbox-e2e provisions it inside a fresh, per-run SANDBOX ENVIRONMENT and
+# tears the whole environment down afterwards.
+#
+# AUTH (same model as conformance.yml / example-e2e.yml, SSO-2942): a CUSTOMER-PLANE
+# `client_credentials` API KEY the operator mints themselves. No GitHub OIDC, no `id-token: write`.
+# The key is TENANT-SCOPED (bound to the standing workspace via its `tnt` claim) and authenticates at
+# that workspace's PER-TENANT issuer (`https://<slug>.hub.stg.thoryn.org`). The hub grants a
+# client-credentials token ONLY the scopes explicitly requested, so sign-in requests EXACTLY this
+# suite's set: tenant:environments.write (create/delete the sandbox) + tenant:applications.write +
+# tenant:applications.read (create/verify/delete the client) + tenant:users.write (register the
+# sign-in-able user) + tenant:email.write (point the standing workspace's BYO-SMTP at the per-run
+# tunnel — the tunnel is ephemeral, so the SMTP config must be (re)applied every run).
+#
+# CLI SOURCE — the prebuilt `thoryn.jar` is downloaded from the LATEST `cli-v*` release of
+# thoryn-io/thoryn-cli. `sandbox-signin` is NOT bundled in the CLI, so the workflow runs
+# `examples update` to fetch it from the repo's SIGNED catalog (SSO-2968, cli-v0.3.7) BEFORE apply.
+#
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │  SCAFFOLD — the FIRST LIVE run is the validation. It needs (a) a cli-v0.3.7+  │
+# │  release (fetched recipes + env.create/env.delete + identity.registerUser),   │
+# │  (b) a SIGNED catalog release of THIS repo that includes `sandbox-signin`      │
+# │  (the operator tags it after merge), and (c) the standing workspace + API key  │
+# │  + repo secrets/vars below. Until then this workflow is workflow_dispatch-only  │
+# │  and FAILS early. Several sandbox capabilities are UNPROVEN — see the           │
+# │  NOTE(SSO-2969) markers below (per-env issuer resolution; whether the sandbox   │
+# │  user + BYO-SMTP + hosted self-service sign-up are per-environment). The first  │
+# │  live run must confirm them; do NOT treat a green schema check as a green run.  │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# The journey (orchestrated below):
+#   client-credentials login (standing workspace issuer) → start in-job Mailpit + open a public SMTP
+#   tunnel to it → point the STANDING workspace BYO-SMTP (SSO-2917) at the tunnel → `examples update`
+#   (fetch the signed catalog) → `examples apply sandbox-signin` (fresh sandbox env + client + user in
+#   it) → resolve the sandbox PER-ENV issuer + client id from the receipt → start the recipe's loopback
+#   RP → Playwright Path-B journey (self-service sign-up → capture email from LOCAL Mailpit API →
+#   verify → sign in via RP → /protected) → teardown (`examples teardown sandbox-signin` deletes the
+#   client + hard-deletes the sandbox; reset the standing workspace BYO-SMTP; kill sink + tunnel + RP).
+#
+# Required repo config (provision once — same as conformance.yml/example-e2e.yml, see README
+# "CI provisioning setup"):
+#   secret  THORYN_API_KEY     — <client-id>:<client-secret> of a client-credentials key scoped to the
+#                                standing workspace, granted tenant:environments.write +
+#                                tenant:applications.write + tenant:applications.read +
+#                                tenant:users.write + tenant:email.write. NEVER a literal (repo is public).
+#   secret  OATHY_CLI_TOKEN    — a token that can read thoryn-io/thoryn-cli RELEASES (download the jar).
+#   secret  NGROK_AUTHTOKEN    — free ngrok authtoken (skip if the repo variable SINK_TUNNEL=bore).
+#   var     CI_WORKSPACE_SLUG  — slug of the STANDING workspace the API key is scoped to.
+#   var     SINK_TUNNEL        — optional; `bore` for the account-less tunnel instead of ngrok.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Per-example sandbox recipe id to run (default: branded-signin)"
+        required: false
+        default: branded-signin
+  schedule:
+    - cron: "25 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+
+permissions:
+  contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC
+
+concurrency:
+  # Share example-e2e's group: BOTH suites mutate the SAME standing workspace's BYO-SMTP config, so
+  # they must never run concurrently (a race would point the sender at the wrong run's dead tunnel).
+  # Sharing the group serializes them repo-wide without editing example-e2e.yml.
+  group: example-e2e
+  cancel-in-progress: false
+
+env:
+  THORYN_HUB: https://hub.stg.thoryn.org
+  THORYN_GATEWAY: https://api.stg.thoryn.org
+  # identity host that serves the hosted register/login screens + the verify-email landing on
+  # staging. Overridden here if the tenant/sandbox serves them on its own subdomain.
+  IDENTITY_BASE_URL: https://identity.stg.thoryn.org
+  # The STANDING workspace the API key is scoped to (its `tnt`). Set as a repo variable so the
+  # operator owns it; the per-tenant issuer is derived from it below.
+  STANDING_WORKSPACE_SLUG: ${{ vars.CI_WORKSPACE_SLUG }}
+  # Which per-example sandbox recipe to run.
+  RECIPE: ${{ github.event.inputs.recipe || 'branded-signin' }}
+  # The runner is headless with no OS keyring → the CLI's default token store is unavailable and it
+  # refuses to silently write plaintext. Sanctioned CI opt-in (same as conformance.yml): the token is
+  # short-lived (client-credentials, no refresh), runner ephemeral.
+  THORYN_CI_PLAINTEXT_TOKENS: "1"
+  RP_PORT: "8471"
+  # The tenant BYO-SMTP "from" address. Mailpit captures every message regardless of sender; a
+  # reserved .test domain keeps it unmistakably non-routable.
+  SMTP_FROM_ADDRESS: noreply@example.test
+  # Which public TCP tunnel to open to the in-job Mailpit SMTP port. Default `ngrok` (needs the
+  # NGROK_AUTHTOKEN secret + a free ngrok account); set the repo variable SINK_TUNNEL=bore for the
+  # no-account `bore.pub` fallback (see e2e/README.md).
+  SINK_TUNNEL: ${{ vars.SINK_TUNNEL || 'ngrok' }}
+
+jobs:
+  sandbox-e2e:
+    name: branded-e2e (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout thoryn-examples
+        uses: actions/checkout@v4
+
+      - name: Set up Java (for the thoryn CLI jar)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node.js (Playwright harness + loopback RP)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── Fetch the prebuilt thoryn CLI (published by thoryn-cli's release) ────
+      - name: Download the prebuilt thoryn CLI (latest cli-v* release)
+        env:
+          # secret OATHY_CLI_TOKEN — a token that can read thoryn-io/thoryn-cli releases (same as
+          # conformance.yml / example-e2e.yml).
+          GH_TOKEN: ${{ secrets.OATHY_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli — run its release workflow first"; exit 1; }
+          echo "Using CLI release $tag"
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
+
+      # ── Authenticate the CLI with a customer-plane client-credentials API key (SSO-2942) ──
+      - name: Sign in (client-credentials API key at the standing workspace issuer)
+        env:
+          # <client-id>:<client-secret> — read from the env by the CLI, never on argv or in logs.
+          THORYN_API_KEY: ${{ secrets.THORYN_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${THORYN_API_KEY:-}" ] || { echo "::error::THORYN_API_KEY is not set — mint a client-credentials key scoped to the standing workspace (see README 'CI provisioning setup')"; exit 1; }
+          [ -n "${STANDING_WORKSPACE_SLUG:-}" ] || { echo "::error::repo variable CI_WORKSPACE_SLUG is not set — the standing workspace slug the key is scoped to"; exit 1; }
+          # Per-tenant issuer (NOT the default hub issuer) + shared gateway; both stamped onto the
+          # session (SSO-2827) so later commands need no host flags.
+          issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org"
+          echo "Signing in at $issuer (gateway $THORYN_GATEWAY)."
+          # Request EXACTLY this suite's scopes. environments.write create/deletes the sandbox;
+          # environments.read reads the sandbox TEST-INBOX (SSO-3026/SSO-3036 — the verify email is
+          # suppressed from SMTP and captured per-env, so the journey reads it via
+          # `thoryn env test-emails`); applications.write+read provision/verify/delete the client;
+          # users.write registers the sandbox user (identity.registerUser); email.write (re)points the
+          # standing workspace's BYO-SMTP at the per-run tunnel. The hub mints a token with only these —
+          # an omitted scope 403s that call. (The CI provisioning key already HOLDS environments.read
+          # alongside environments.write — see README; this just requests it.)
+          java -jar thoryn.jar login --client-credentials \
+            --issuer "$issuer" --gateway "$THORYN_GATEWAY" \
+            --scope "tenant:environments.write tenant:environments.read tenant:applications.write tenant:applications.read tenant:users.write tenant:email.write tenant:idp.write"
+          java -jar thoryn.jar login --status
+
+      # ── Start the EPHEMERAL in-job Mailpit sink + open a public SMTP tunnel ──
+      # (BEFORE the BYO-SMTP config, so its address can be pointed at the sink.) Verbatim from
+      # example-e2e.yml — the sink + tunnel are identical; only the recipe applied downstream differs.
+      - name: Start in-job Mailpit + open a public TCP tunnel to its SMTP port
+        id: sink
+        env:
+          # secret NGROK_AUTHTOKEN — free ngrok account; the ONLY tunnel secret. Not needed when
+          # SINK_TUNNEL=bore (bore.pub is account-less).
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Per-run SMTP password: generated here, never committed, dies with the runner.
+          SMTP_PW="$(openssl rand -hex 16)"
+          echo "::add-mask::$SMTP_PW"
+          echo "SMTP_PW=$SMTP_PW" >> "$GITHUB_ENV"
+
+          # 1) Mailpit in Docker — :1025 SMTP (tunnelled to the public internet),
+          #    :8025 HTTP API (read LOCALLY by the harness). MP_SMTP_AUTH_ALLOW_INSECURE
+          #    because the tunnel carries plaintext SMTP (no STARTTLS cert for its host).
+          docker run -d --name mailpit -p 1025:1025 -p 8025:8025 \
+            -e MP_SMTP_AUTH="ci:$SMTP_PW" \
+            -e MP_SMTP_AUTH_ALLOW_INSECURE=true \
+            axllent/mailpit:latest
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8025/api/v1/info >/dev/null 2>&1 && { echo "Mailpit API is up"; break; }
+            sleep 1
+          done
+
+          # 2) Public TCP tunnel → Mailpit SMTP (:1025). Default ngrok; bore = no-account
+          #    fallback. Swapping between them is this small, documented SINK_TUNNEL toggle.
+          public_url=""
+          case "$SINK_TUNNEL" in
+            ngrok)
+              [ -n "${NGROK_AUTHTOKEN:-}" ] || { echo "::error::NGROK_AUTHTOKEN is not set (or set repo variable SINK_TUNNEL=bore)"; exit 1; }
+              curl -sSLo /tmp/ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+              sudo tar -xzf /tmp/ngrok.tgz -C /usr/local/bin
+              ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+              ngrok tcp 1025 --log=stdout > /tmp/ngrok.log 2>&1 &
+              echo "NGROK_PID=$!" >> "$GITHUB_ENV"
+              # ngrok exposes a local admin API at :4040 whose /api/tunnels carries the
+              # public tcp://host:port. Poll it until the tunnel is established.
+              for _ in $(seq 1 30); do
+                public_url="$(curl -fsS http://localhost:4040/api/tunnels 2>/dev/null | grep -oE 'tcp://[0-9a-zA-Z.-]+:[0-9]+' | head -1 || true)"
+                [ -n "$public_url" ] && break
+                sleep 1
+              done
+              [ -n "$public_url" ] || { echo "::error::ngrok tunnel did not come up"; echo '--- ngrok.log ---'; cat /tmp/ngrok.log || true; exit 1; }
+              ;;
+            bore)
+              # No-account fallback: bore.pub assigns a random public port that forwards
+              # to our local :1025. No token, no config. (github.com/ekzhang/bore)
+              curl -sSLo /tmp/bore.tgz https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz
+              sudo tar -xzf /tmp/bore.tgz -C /usr/local/bin
+              bore local 1025 --to bore.pub > /tmp/bore.log 2>&1 &
+              echo "BORE_PID=$!" >> "$GITHUB_ENV"
+              port=""
+              for _ in $(seq 1 30); do
+                port="$(grep -oE 'remote_port[=: ]+[0-9]+|bore\.pub:[0-9]+' /tmp/bore.log 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)"
+                [ -n "$port" ] && break
+                sleep 1
+              done
+              [ -n "$port" ] || { echo "::error::bore tunnel did not come up"; echo '--- bore.log ---'; cat /tmp/bore.log || true; exit 1; }
+              public_url="tcp://bore.pub:${port}"
+              ;;
+            *)
+              echo "::error::unknown SINK_TUNNEL '$SINK_TUNNEL' (expected ngrok|bore)"; exit 1
+              ;;
+          esac
+
+          host="$(printf '%s' "$public_url" | sed -E 's#^tcp://([^:]+):([0-9]+)$#\1#')"
+          port="$(printf '%s' "$public_url" | sed -E 's#^tcp://([^:]+):([0-9]+)$#\2#')"
+          [ -n "$host" ] && [ -n "$port" ] || { echo "::error::could not parse tunnel host:port from '$public_url'"; exit 1; }
+          {
+            echo "smtp_host=$host"
+            echo "smtp_port=$port"
+          } >> "$GITHUB_OUTPUT"
+          echo "Public SMTP sink: ${host}:${port} → in-job Mailpit :1025 (API on localhost:8025)"
+
+      # ── Point the STANDING workspace's BYO-SMTP (SSO-2917) at the tunnelled sink ──
+      # Applied PER RUN because the tunnel is ephemeral. Done with the standalone
+      # `workspace email-provider set` command (needs tenant:email.write) against the standing
+      # workspace's gateway. The SMTP password is passed through a 0600 temp FILE, never on argv.
+      #
+      # NOTE(SSO-2969): BYO-SMTP is configured at the WORKSPACE level here (as example-e2e does),
+      # NOT per sandbox environment. Whether a sign-up in the sandbox environment routes its
+      # verification email via the workspace sender is UNPROVEN — the first live run must confirm the
+      # email actually lands in Mailpit. If sandbox environments need their OWN email-provider config,
+      # that is a product gap to record (there is no per-env email-provider recipe action today).
+      - name: Point the standing workspace BYO-SMTP at the tunnelled sink
+        env:
+          SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
+          SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
+        run: |
+          set -euo pipefail
+          [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
+          pw_file="$(mktemp)"; chmod 600 "$pw_file"
+          printf '%s' "$SMTP_PW" > "$pw_file"
+          # transport=none + allow-insecure: the TCP tunnel can't present a valid STARTTLS cert for
+          # its ephemeral hostname — plaintext to a throwaway TEST sink only. MP_SMTP_AUTH=ci:$SMTP_PW
+          # means only this run can deliver to the sink. `set` is a merge-upsert (PUT) — not a
+          # destructive action — so it needs no production `--confirm`.
+          java -jar thoryn.jar workspace email-provider set \
+            --smtp-host "$SINK_SMTP_HOST" \
+            --smtp-port "$SINK_SMTP_PORT" \
+            --smtp-username ci \
+            --smtp-password-file "$pw_file" \
+            --transport-security none --allow-insecure \
+            --from-address "$SMTP_FROM_ADDRESS" \
+            --enabled true \
+            --gateway "$THORYN_GATEWAY"
+          rm -f "$pw_file"
+          echo "Standing workspace '$STANDING_WORKSPACE_SLUG' BYO-SMTP → ${SINK_SMTP_HOST}:${SINK_SMTP_PORT}"
+
+      # ── Fetch the SIGNED catalog so the (non-bundled) sandbox-signin recipe resolves (SSO-2968) ──
+      - name: Update the signed recipe catalog (sandbox-signin is NOT bundled in the CLI)
+        run: |
+          set -euo pipefail
+          # `examples update` downloads catalog.zip + catalog.zip.sig from THIS repo's latest signed
+          # release and verifies the Ed25519 signature against the CLI's pinned public key before using
+          # anything. sandbox-signin ships in that catalog, not in the CLI jar, so this MUST run before
+          # apply. (Pre-publish — before the operator tags a catalog release including sandbox-signin —
+          # apply will fail "recipe not found"; that is expected until the release exists.)
+          java -jar thoryn.jar examples update
+
+      # ── Provision the fresh sandbox env + client + user via the recipe ──
+      - name: Apply branded-signin (fresh sandbox env + loopback client + user) and resolve issuer/client
+        id: apply
+        run: |
+          set -euo pipefail
+          # A deterministic, unique per-run sandbox slug so we can DERIVE the per-env issuer without
+          # depending on an unproven receipt field, and so a re-run never collides with a leftover.
+          env_slug="brand-signin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "SANDBOX_ENV_SLUG=$env_slug" >> "$GITHUB_ENV"
+          # `--set workspaceSlug=<standing>` names the standing workspace the sandbox + client are
+          # created in; the recipe's env.create step provisions a FRESH sandbox and later steps land
+          # inside it. Hosts come from the stamped session.
+          java -jar thoryn.jar examples apply "$RECIPE" \
+            --set "workspaceSlug=${STANDING_WORKSPACE_SLUG}" \
+            --set "envSlug=${env_slug}" --yes
+
+          # The receipt is the portable, secret-free record of what was provisioned.
+          java -jar thoryn.jar examples receipt "$RECIPE" --output json > /tmp/receipt.json
+
+          # Ephemeral client id — same shape example-e2e parses (a `kind=="application"` resource).
+          client="$(jq -r '[.resources[]? | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
+          [ -n "$client" ] || { echo "::error::could not parse the ephemeral clientId from the receipt"; cat /tmp/receipt.json; exit 1; }
+
+          # SSO-2969: the sandbox environment's PER-ENV issuer is the WORKSPACE issuer with a
+          # `/{env-slug}` PATH SUFFIX — `https://<workspace>.hub.stg.thoryn.org/<env-slug>` — NOT a
+          # per-env subdomain. Confirmed against the hub: SecurityConfig projects a sandbox token's
+          # `iss` to `<live-issuer>/{env-slug}` (SSO-2411), and the client created in the sandbox
+          # carries `environment_slug` so the authorize flow scopes to that env. (The first live run
+          # disproved the earlier subdomain guess — `<env-slug>.hub…` served no hosted login.)
+          # Prefer an explicit issuer on the receipt if the CLI ever adds one; else derive the path form.
+          issuer="$(jq -r '
+            ( [ .resources[]? | select(.kind=="environment") | (.issuer? // .issuerUri? // .issuer_url?) ] | map(select(. != null)) | first )
+            // .environment?.issuer?
+            // empty' /tmp/receipt.json)"
+          if [ -n "$issuer" ] && [ "$issuer" != "null" ]; then
+            echo "Resolved the sandbox per-env issuer from the receipt: $issuer"
+          else
+            env_slug_from_receipt="$(jq -r '[ .resources[]? | select(.kind=="environment") | (.slug? // .name?) ] | map(select(. != null)) | first // ""' /tmp/receipt.json)"
+            [ -n "$env_slug_from_receipt" ] && env_slug="$env_slug_from_receipt"
+            issuer="https://${STANDING_WORKSPACE_SLUG}.hub.stg.thoryn.org/${env_slug}"
+            echo "Derived the sandbox per-env issuer (workspace issuer + /{env-slug} path, per SecurityConfig SSO-2411): $issuer"
+          fi
+
+          {
+            echo "issuer=$issuer"
+            echo "client_id=$client"
+          } >> "$GITHUB_OUTPUT"
+          echo "Provisioned ephemeral client '$client' in sandbox '$env_slug' of '$STANDING_WORKSPACE_SLUG' (issuer=$issuer)"
+
+      # ── Start the loopback RP (the app the end user signs in to) ─────────────
+      - name: Start the loopback relying-party
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          PORT: ${{ env.RP_PORT }}
+        run: |
+          node recipes/branded-signin/apps/loopback-rp/server.js &
+          echo "RP_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${RP_PORT}/" >/dev/null 2>&1 && { echo "RP is up"; break; }
+            sleep 1
+          done
+
+      # ── Drive the Path-B browser journey ─────────────────────────────────────
+      # Reuses the generic e2e harness (e2e/ — config.ts is fully env-driven), pointed at the sandbox's
+      # per-env issuer + client. The spec is not simple-signin-specific beyond naming; the sandbox
+      # journey is the same self-service sign-up → email capture → verify → RP sign-in flow.
+      #
+      # NOTE(SSO-2969): this assumes the sandbox environment's hosted identity exposes self-service
+      # sign-up at IDENTITY_BASE_URL and that the verification email reaches the in-job Mailpit. Both
+      # are unproven for a sandbox env — the first live run confirms them (or records the gap).
+      # The E2E harness is a ROOT npm package (single node_modules) so the recipes'
+      # COLOCATED specs (recipes/<id>/e2e/) resolve @playwright/test. The shared harness
+      # (config, Mailpit capture, the per-recipe results reporter) lives under e2e/; the
+      # `test:sandbox` script runs ONLY the `sandbox-signin` project — its OWN colocated
+      # spec (recipes/sandbox-signin/e2e/sandbox-signin-journey.spec.ts), which asserts
+      # the RP points at the sandbox per-env issuer. The reporter writes
+      # recipes/branded-signin/E2E_RESULTS.md from this run.
+      - name: Run the Playwright harness (Path B — sandbox test-inbox capture)
+        env:
+          THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
+          THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
+          RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
+          IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
+          # SSO-3033/SSO-3036 — the sandbox journey reads the verification email from the per-env
+          # TEST-INBOX (SSO-3026) via the CLI, because a sandbox SUPPRESSES real email (SSO-2449) so it
+          # never reaches the Mailpit sink. The harness shells out to the SAME prebuilt thoryn.jar the
+          # workflow signed in above (session persisted in $HOME, carrying tenant:environments.read),
+          # scoped to this run's sandbox.
+          THORYN_JAR: ${{ github.workspace }}/thoryn.jar
+          SANDBOX_ENV_SLUG: ${{ env.SANDBOX_ENV_SLUG }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:branded
+
+      - name: Upload Playwright report + generated E2E_RESULTS.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-e2e-playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+            recipes/branded-signin/E2E_RESULTS.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      # SSO-2969 — commit the regenerated per-recipe E2E_RESULTS.md back, so browsing the recipe
+      # shows the LATEST result (pass OR fail), not just the seeded placeholder. Runs on the
+      # default branch only (this workflow fires on schedule / workflow_dispatch, both on main),
+      # `always()` so failures are recorded too, and no-ops when the file is unchanged. `[skip ci]`
+      # keeps it from re-triggering a workflow. `contents: write` (above) authorizes the push.
+      - name: Commit back the generated E2E_RESULTS.md
+        if: always() && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          FILE=recipes/branded-signin/E2E_RESULTS.md
+          if git diff --quiet -- "$FILE"; then
+            echo "E2E_RESULTS.md unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "thoryn-ci[bot]"
+          git config user.email "ci@thoryn.io"
+          git add "$FILE"
+          git commit -m "chore(e2e): update branded-signin E2E_RESULTS.md from CI run ${{ github.run_id }} [skip ci]"
+          # Rebase onto the latest main so the sibling recipe's commit-back can't cause a non-fast-forward.
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
+
+      # ── Teardown — always, even on failure ───────────────────────────────────
+      # The container + tunnel would die with the runner regardless; killing them explicitly is tidy.
+      # `examples teardown` deletes the ephemeral CLIENT then HARD-DELETES the sandbox environment
+      # (env.delete, confirmed with the env's own slug the interpreter recorded at env.create) — the
+      # standing workspace is the operator's and is NEVER touched. The BYO-SMTP is reset so the standing
+      # workspace doesn't keep a dangling (dead-tunnel) SMTP config between runs; `--confirm <slug>`
+      # clears the production-confirmation guard (SSO-2413). Best-effort — the next run's `set`
+      # overwrites any stale config regardless.
+      - name: Teardown the client + sandbox, sink, tunnel, RP, and BYO-SMTP
+        if: always()
+        run: |
+          set -uo pipefail
+          [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
+          [ -n "${NGROK_PID:-}" ] && kill "$NGROK_PID" 2>/dev/null || true
+          [ -n "${BORE_PID:-}" ] && kill "$BORE_PID" 2>/dev/null || true
+          docker rm -f mailpit 2>/dev/null || true
+          java -jar thoryn.jar examples teardown "$RECIPE" || true
+          java -jar thoryn.jar workspace email-provider reset \
+            --confirm "$STANDING_WORKSPACE_SLUG" --gateway "$THORYN_GATEWAY" || true

@@ -60,23 +60,17 @@ async function submitPassword(page: Page, email: string): Promise<string> {
  * session chain) to obtain the _csrf meta, then fetch() the endpoints IN THE PAGE so the session
  * cookie + CSRF header ride along same-origin.
  */
-async function enrollTotp(page: Page, identityOrigin: string, email: string): Promise<string> {
+async function enrollTotp(page: Page, identityOrigin: string): Promise<string> {
   const base = identityOrigin;
-  // The hub-FEDERATED session (from the RP sign-in) does NOT authorize the self-service account
-  // portal — GET /account/security 302s to /login. Establish a real account-portal (form-login)
-  // session by signing in DIRECTLY at identity, mirroring oathy e2e/hosted-login loginViaPassword,
-  // then load /account/security (now authenticated) to read its session _csrf meta.
-  await page.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
-  if (await page.locator("#passwordForm").isVisible().catch(() => false)) {
-    await page.locator("#passwordEmail").fill(email);
-    await page.locator("#password").fill(config.password);
-    await page.locator("#passwordForm button[type=submit]").click();
-    await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20_000 }).catch(() => {});
-  }
+  // SSO-3049 (fixed): the hub-FEDERATED session from the first sign-in now authorizes the
+  // self-service account portal — identity resolves the user by the authenticated principal's
+  // users.id PK, not a request-env lookup, so a sandbox user is no longer bounced to /login. Load
+  // /account/security to obtain the session _csrf meta, then fetch the enrol endpoints IN THE PAGE
+  // (mirroring account-security.js) so the session cookie + CSRF header ride along same-origin.
   await page.goto(`${base}/account/security`, { waitUntil: "domcontentloaded" });
   expect(
     new URL(page.url()).pathname,
-    "the account portal must be authenticated to enrol TOTP (direct form-login established a session)",
+    "the federated session authorizes the account portal (SSO-3049)",
   ).toContain("/account/security");
 
   // Enrol — in-page fetch, mirroring account-security.js (read the _csrf meta, send it as the header).
@@ -107,14 +101,7 @@ async function enrollTotp(page: Page, identityOrigin: string, email: string): Pr
   return secret!;
 }
 
-// BLOCKED on SSO-3049: a sandbox-env user has no reachable self-service MFA-enrolment path on
-// staging. The hub-federated session does NOT authorize identity's account portal
-// (GET /account/security → 302 /login → enrol POST 403), and a direct identity /login cannot
-// authenticate a sandbox user (no env context → stays on /login). Proven with Playwright traces
-// on 2026-09-12. The recipe, the RFC-6238 core (e2e/lib/totp.mjs, unit-tested), and the
-// password first-sign-in all work; the enrol→challenge journey is skipped (test.describe.fixme)
-// until SSO-3049 gives a sandbox user a way to enrol. Flip back to test.describe once it lands.
-test.describe.fixme("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043; enrol blocked on SSO-3049)", () => {
+test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
   test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
     browser,
   }) => {
@@ -138,7 +125,7 @@ test.describe.fixme("totp-signin example — enrol a TOTP authenticator, then a 
       // 2) Enrol a TOTP authenticator for the now-signed-in user (self-service MFA API).
       let secret = "";
       await test.step(STEPS.enroll, async () => {
-        secret = await enrollTotp(page, identityOrigin, email);
+        secret = await enrollTotp(page, identityOrigin);
       });
 
       // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
@@ -173,7 +160,7 @@ test.describe.fixme("totp-signin example — enrol a TOTP authenticator, then a 
       await startSignInFromRp(page);
       const identityOrigin = await submitPassword(page, email);
       await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
-      await enrollTotp(page, identityOrigin, email);
+      await enrollTotp(page, identityOrigin);
 
       await context.clearCookies();
       await startSignInFromRp(page);

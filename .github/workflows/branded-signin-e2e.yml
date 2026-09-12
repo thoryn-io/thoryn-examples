@@ -70,14 +70,8 @@ on:
         description: "Per-example sandbox recipe id to run (default: branded-signin)"
         required: false
         default: branded-signin
-  # SCAFFOLD (SSO-3039) — dispatch-ONLY until the CI provisioning key (THORYN_API_KEY) is re-granted
-  # `tenant:idp.write`. branded-signin's `tenant.configureLoginTheme` step needs that scope; the
-  # first live run (2026-09-12) sign-in failed `invalid_scope` because the operator-minted key holds
-  # the sandbox-e2e scope set WITHOUT idp.write (Spring AS mints only requested ∩ registered). Grant
-  # it to the key (re-run `thoryn provision ci-identity` / update the client's scopes — NOT a DB
-  # patch), then restore the nightly `schedule:` below so branded-signin is covered like sandbox-e2e.
-  #   schedule:
-  #     - cron: "25 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  schedule:
+    - cron: "25 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC

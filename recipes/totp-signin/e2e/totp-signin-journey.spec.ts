@@ -113,9 +113,15 @@ async function verifyTotpChallenge(
   code: string,
 ): Promise<{ status: number; data: { redirect?: string; error?: string } }> {
   return page.evaluate(async (code) => {
+    // SSO-3052: /mfa/totp/verify is CSRF-protected; send the session token from the _csrf meta, as
+    // mfa-challenge.html's own handler now does.
+    const token = document.querySelector('meta[name="_csrf"]')?.getAttribute("content") ?? "";
+    const hdr = document.querySelector('meta[name="_csrf_header"]')?.getAttribute("content") ?? "X-CSRF-TOKEN";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers[hdr] = token;
     const res = await fetch("/mfa/totp/verify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ code, trustDevice: false }),
     });
     const data = await res.json().catch(() => ({}));
@@ -123,12 +129,7 @@ async function verifyTotpChallenge(
   }, code);
 }
 
-// PARTIALLY BLOCKED on SSO-3052: SSO-3049 is FIXED and validated — password sign-in, enrol (via the
-// federated session + account portal) and the RFC-6238 core all work end to end. The CHALLENGE step
-// is blocked: POST /mfa/totp/verify returns 403 (CSRF) because mfa-challenge.html carries no _csrf
-// meta and its handler sends no token on the CSRF-enabled chain (SSO-3052). Skipped (test.describe.fixme)
-// until SSO-3052 lands; flip back to test.describe then.
-test.describe.fixme("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043; challenge blocked on SSO-3052)", () => {
+test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
   test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
     browser,
   }) => {

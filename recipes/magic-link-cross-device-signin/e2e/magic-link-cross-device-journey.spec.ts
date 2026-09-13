@@ -55,12 +55,13 @@ async function captureMagicLink(email: string): Promise<string> {
   return link!;
 }
 
-// BLOCKED on SSO-3049 (env-resolution family): with the affordance (SSO-3050) + capture (SSO-3051)
-// fixes deployed, the happy path still fails — the sandbox test inbox is EMPTY because
-// POST /auth/magic-link/request resolves the sandbox user against "production" (currentLoginEnvironmentSlug
-// fallback) → user not found → no email generated. Proven with an inbox-dump diagnostic on 2026-09-12.
-// The recipe + journey are complete; skipped (test.describe.fixme) until the SSO-3049 env fix lands.
-test.describe.fixme("magic-link-cross-device-signin — passwordless sign-in ACROSS two devices (SSO-3048; blocked on SSO-3049)", () => {
+// SSO-3058 FIXED (oathy#3550): the magic-link request path now honours the client's SSO-1166 redirect-uri
+// patterns, so a brokered sandbox sign-in's tenant-subdomain callback is accepted instead of 400'ing at
+// validateClientAndRedirect. Root cause (pinned on local k3d): the affordance bound to the identity-service
+// federation client's TENANT-SUBDOMAIN callback, which matched only the client's redirectUriPatterns, not the
+// exact redirectUris — so every non-apex magic-link request 400'd before any email was generated (empty sandbox
+// inbox). Re-activated; validated against staging once #3550 is deployed.
+test.describe("magic-link-cross-device-signin — passwordless sign-in ACROSS two devices (SSO-3048)", () => {
   test("full journey: A requests → B shows a continuation code → redeem on A → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const deviceA = await browser.newContext({ ignoreHTTPSErrors: true });

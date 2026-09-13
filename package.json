@@ -16,7 +16,8 @@
     "results:init": "node e2e/scripts/init-e2e-results.mjs",
     "test:totp": "playwright test -c e2e/playwright.config.ts --project=totp-signin",
     "test:magic-link": "playwright test -c e2e/playwright.config.ts --project=magic-link-signin",
-    "test:magic-link-xdevice": "playwright test -c e2e/playwright.config.ts --project=magic-link-cross-device-signin"
+    "test:magic-link-xdevice": "playwright test -c e2e/playwright.config.ts --project=magic-link-cross-device-signin",
+    "test:passkey": "playwright test -c e2e/playwright.config.ts --project=passkey-signin"
   },
   "devDependencies": {
     "@playwright/test": "1.48.2",

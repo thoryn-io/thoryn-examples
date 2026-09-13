@@ -1,0 +1,94 @@
+# SSO-3045 (epic SSO-3042) — `passkey-signin`: the phishing-resistant SECOND-FACTOR example. Same
+# per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able user);
+# the browser journey ENROLS a WebAuthn passkey (driven by a Playwright CDP virtual authenticator),
+# then proves a fresh sign-in is CHALLENGED for the passkey second factor and completes the assertion.
+#
+# WHY this recipe has one extra concept vs totp-signin: passkey MFA is NOT enrolment-driven. TOTP/SMS
+# are challenged the moment they are enrolled; a passkey is challenged only when an ENFORCE-mode login
+# flow has a REQUIRED PASSKEY stage the user can satisfy (LoginFlowEnforceDriver). So the journey, AFTER
+# enrolling the passkey, activates a `password REQUIRED + passkey REQUIRED` login flow for the sandbox
+# via the product CLI — `thoryn login-flow set --stage password:PASSWORD:REQUIRED --stage
+# passkey:PASSKEY:REQUIRED --activate` (SSO-3065; tenant:idp.write). Enrol must precede enforce: the
+# self-service passkey enrol is session-gated, so the user first signs in with the password (the sandbox
+# default flow), enrols, and only then is the passkey-enforcing flow activated.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
+# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
+# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user + passkey + flow).
+apiVersion: thoryn.io/examples/v1
+id: passkey-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, enrol a WebAuthn passkey, activate a password+passkey login flow, and prove the passkey second-factor challenge on sign-in; then hard-delete the sandbox.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), applications.create (write) + the applications.get verify (read),
+    # identity.registerUser (users.write). tenant:idp.write is for the JOURNEY's login-flow enforce
+    # (thoryn login-flow set --activate, SSO-3065) — passkey MFA needs an ENFORCE-mode passkey stage.
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+    - tenant:idp.write
+  # 0.7.0 ships `thoryn login-flow` (SSO-3065), which the journey uses to enforce the passkey stage.
+  minCliVersion: 0.7.0
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "passkey-signin-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Passkey Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Passkey Sign-in App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox; the journey enrols a passkey for this user.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown (child-first): delete the app, then hard-delete the sandbox it lives in. The hard-delete
+# cascades the client + the user (+ its passkey credential + the activated login flow) — nothing
+# outlives the environment.
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

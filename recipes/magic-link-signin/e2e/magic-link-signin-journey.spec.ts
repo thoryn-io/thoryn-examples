@@ -53,12 +53,18 @@ async function captureMagicLink(email: string): Promise<string> {
   return link!;
 }
 
-// BLOCKED on SSO-3049 (env-resolution family): with the affordance (SSO-3050) + capture (SSO-3051)
-// fixes deployed, the happy path still fails — the sandbox test inbox is EMPTY because
-// POST /auth/magic-link/request resolves the sandbox user against "production" (currentLoginEnvironmentSlug
-// fallback) → user not found → no email generated. Proven with an inbox-dump diagnostic on 2026-09-12.
-// The recipe + journey are complete; skipped (test.describe.fixme) until the SSO-3049 env fix lands.
-test.describe.fixme("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047; blocked on SSO-3049)", () => {
+// STILL BLOCKED (re-validated 2026-09-13 against staging, run 34740296774): the SSO-3049 env fixes
+// (SSO-3021 #3530, SSO-3028 #3534) + affordance (SSO-3050 #3542) + capture (SSO-3051 #3543) are ALL
+// deployed to staging (deploy 03:55Z), yet the journey still fails at capture: the sandbox test inbox
+// is TOTALLY EMPTY (ml-diagnostic "Whole inbox (0): []") — POST /auth/magic-link/request silently
+// no-ops, no email on any channel. The affordance renders and the form submits (failure is at
+// captureMagicLink, not requestMagicLink). ISOLATION: sandbox-signin (PASSWORD, identical
+// identity.registerUser provisioning into the same sandbox) PASSES on staging — so the gap is
+// SPECIFIC to the /auth/magic-link/request path (its own permitAll SecurityFilterChain), not general
+// env-resolution or user provisioning. Root cause is one of the service's silent no-op branches
+// (env→production user-miss, or the tenant login-method-policy gate) and needs DEBUG-level repro.
+// Tracked as the follow-up product ticket; un-fixme + re-dispatch this workflow once it lands.
+test.describe.fixme("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047; blocked on the magic-link-request env/user-resolution gap)", () => {
   test("full journey: request a magic link → open it on the same device → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });

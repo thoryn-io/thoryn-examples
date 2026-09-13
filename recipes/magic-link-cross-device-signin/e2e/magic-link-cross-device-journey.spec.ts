@@ -55,12 +55,12 @@ async function captureMagicLink(email: string): Promise<string> {
   return link!;
 }
 
-// BLOCKED on SSO-3049 (env-resolution family): with the affordance (SSO-3050) + capture (SSO-3051)
-// fixes deployed, the happy path still fails — the sandbox test inbox is EMPTY because
-// POST /auth/magic-link/request resolves the sandbox user against "production" (currentLoginEnvironmentSlug
-// fallback) → user not found → no email generated. Proven with an inbox-dump diagnostic on 2026-09-12.
-// The recipe + journey are complete; skipped (test.describe.fixme) until the SSO-3049 env fix lands.
-test.describe.fixme("magic-link-cross-device-signin — passwordless sign-in ACROSS two devices (SSO-3048; blocked on SSO-3049)", () => {
+// STILL BLOCKED (see the same-device spec for the 2026-09-13 re-validation): the SSO-3049 env fixes
+// + affordance + capture are all deployed to staging, yet POST /auth/magic-link/request silently
+// no-ops (sandbox test inbox totally empty). The gap is SPECIFIC to the magic-link-request path —
+// sandbox-signin (password, identical provisioning) passes on staging. Cross-device shares the same
+// request endpoint, so it is blocked by the same gap. Un-fixme + re-dispatch once the product fix lands.
+test.describe.fixme("magic-link-cross-device-signin — passwordless sign-in ACROSS two devices (SSO-3048; blocked on the magic-link-request env/user-resolution gap)", () => {
   test("full journey: A requests → B shows a continuation code → redeem on A → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const deviceA = await browser.newContext({ ignoreHTTPSErrors: true });

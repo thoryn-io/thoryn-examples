@@ -70,12 +70,10 @@ on:
         description: "Per-example sandbox recipe id to run (default: totp-signin)"
         required: false
         default: totp-signin
-  # SCAFFOLD (SSO-3043) — dispatch-ONLY until (a) a catalog release ships totp-signin and (b) the first
-  # live run confirms the FIRST-LIVE-CONFIRM seams in the spec (the self-service MFA enrol API path +
-  # XSRF, and the /mfa/totp/challenge selectors). Enable the nightly below once it's green, like
-  # sandbox-e2e / branded-signin.
-  #   schedule:
-  #     - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  # SSO-3043 — nightly enabled after the first green live run confirmed the self-service TOTP enrol
+  # API + XSRF handling and the /mfa/totp/challenge selectors on staging.
+  schedule:
+    - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC

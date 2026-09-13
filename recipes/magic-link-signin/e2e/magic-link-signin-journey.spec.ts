@@ -64,7 +64,7 @@ async function captureMagicLink(email: string): Promise<string> {
 // env-resolution or user provisioning. Root cause is one of the service's silent no-op branches
 // (env→production user-miss, or the tenant login-method-policy gate) and needs DEBUG-level repro.
 // Tracked as the follow-up product ticket; un-fixme + re-dispatch this workflow once it lands.
-test.describe.fixme("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047; blocked on the magic-link-request env/user-resolution gap)", () => {
+test.describe("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047; blocked on the magic-link-request env/user-resolution gap)", () => {
   test("full journey: request a magic link → open it on the same device → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });

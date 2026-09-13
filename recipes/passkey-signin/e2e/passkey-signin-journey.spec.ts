@@ -123,10 +123,19 @@ async function enforcePasskeyFlow(): Promise<void> {
   const envSlug = config.cli.envSlug;
   expect(jar, "passkey enforce needs THORYN_JAR (the CLI the workflow signed in)").toBeTruthy();
   expect(envSlug, "passkey enforce needs SANDBOX_ENV_SLUG (the per-run sandbox)").toBeTruthy();
-  await execFileP("java", ["-jar", jar, "env", "use", envSlug], { timeout: 60_000 });
+  // SSO-3068 — target the sandbox environment with `--environment` rather than `env use`. The CI
+  // session is a client-credentials (API-key) login: it is already scoped to the workspace's
+  // per-tenant issuer, but `env use` requires a `workspace switch` selection an API-key session
+  // can never establish. `login-flow set --environment <slug>` rides X-Thoryn-Environment directly.
   await execFileP(
     "java",
-    ["-jar", jar, "login-flow", "set", "--stage", "password:PASSWORD:REQUIRED", "--stage", "passkey:PASSKEY:REQUIRED", "--activate"],
+    [
+      "-jar", jar, "login-flow", "set",
+      "--environment", envSlug,
+      "--stage", "password:PASSWORD:REQUIRED",
+      "--stage", "passkey:PASSKEY:REQUIRED",
+      "--activate",
+    ],
     { timeout: 60_000 },
   );
 }

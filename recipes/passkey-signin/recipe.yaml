@@ -31,7 +31,7 @@ requires:
     - tenant:users.write
     - tenant:idp.write
   # 0.7.0 ships `thoryn login-flow` (SSO-3065), which the journey uses to enforce the passkey stage.
-  minCliVersion: 0.7.0
+  minCliVersion: 0.8.0
 
 params:
   - name: workspaceSlug

@@ -53,18 +53,13 @@ async function captureMagicLink(email: string): Promise<string> {
   return link!;
 }
 
-// STILL BLOCKED (re-validated 2026-09-13 against staging, run 34740296774): the SSO-3049 env fixes
-// (SSO-3021 #3530, SSO-3028 #3534) + affordance (SSO-3050 #3542) + capture (SSO-3051 #3543) are ALL
-// deployed to staging (deploy 03:55Z), yet the journey still fails at capture: the sandbox test inbox
-// is TOTALLY EMPTY (ml-diagnostic "Whole inbox (0): []") — POST /auth/magic-link/request silently
-// no-ops, no email on any channel. The affordance renders and the form submits (failure is at
-// captureMagicLink, not requestMagicLink). ISOLATION: sandbox-signin (PASSWORD, identical
-// identity.registerUser provisioning into the same sandbox) PASSES on staging — so the gap is
-// SPECIFIC to the /auth/magic-link/request path (its own permitAll SecurityFilterChain), not general
-// env-resolution or user provisioning. Root cause is one of the service's silent no-op branches
-// (env→production user-miss, or the tenant login-method-policy gate) and needs DEBUG-level repro.
-// Tracked as the follow-up product ticket; un-fixme + re-dispatch this workflow once it lands.
-test.describe.fixme("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047; blocked on the magic-link-request env/user-resolution gap)", () => {
+// SSO-3058 FIXED (oathy#3550): the magic-link request path now honours the client's SSO-1166 redirect-uri
+// patterns, so a brokered sandbox sign-in's tenant-subdomain callback is accepted instead of 400'ing at
+// validateClientAndRedirect. Root cause (pinned on local k3d): the affordance bound to the identity-service
+// federation client's TENANT-SUBDOMAIN callback, which matched only the client's redirectUriPatterns, not the
+// exact redirectUris — so every non-apex magic-link request 400'd before any email was generated (empty sandbox
+// inbox). Re-activated; validated against staging once #3550 is deployed.
+test.describe("magic-link-signin example — passwordless sign-in via a single-use email link on the SAME device (SSO-3047)", () => {
   test("full journey: request a magic link → open it on the same device → /protected", async ({ browser }) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });

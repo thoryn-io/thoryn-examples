@@ -70,9 +70,9 @@ on:
         description: "Per-example sandbox recipe id to run (default: magic-link-cross-device-signin)"
         required: false
         default: magic-link-cross-device-signin
-  # SCAFFOLD (SSO-3043) — dispatch-ONLY until (a) a catalog release ships totp-signin and (b) the first
-  # live run confirms the FIRST-LIVE-CONFIRM seams in the spec (the self-service MFA enrol API path +
-  # XSRF, and the /mfa/totp/challenge selectors). Enable the nightly below once it's green, like
+  # SCAFFOLD (SSO-3048) — dispatch-ONLY until (a) a catalog release ships magic-link-cross-device-signin and (b) the first
+  # live run confirms the FIRST-LIVE-CONFIRM seams in the spec (the magic-link request + the sandbox
+  # test-inbox link capture, device-B continuation code, and the redeem-on-A → RP resume). Enable the nightly below once it's green, like
   # sandbox-e2e / branded-signin.
   #   schedule:
   #     - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
@@ -303,7 +303,7 @@ jobs:
           set -euo pipefail
           # A deterministic, unique per-run sandbox slug so we can DERIVE the per-env issuer without
           # depending on an unproven receipt field, and so a re-run never collides with a leftover.
-          env_slug="totp-signin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          env_slug="magic-link-cross-device-signin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "SANDBOX_ENV_SLUG=$env_slug" >> "$GITHUB_ENV"
           # `--set workspaceSlug=<standing>` names the standing workspace the sandbox + client are
           # created in; the recipe's env.create step provisions a FRESH sandbox and later steps land
@@ -352,7 +352,7 @@ jobs:
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           PORT: ${{ env.RP_PORT }}
         run: |
-          node recipes/totp-signin/apps/loopback-rp/server.js &
+          node recipes/magic-link-cross-device-signin/apps/loopback-rp/server.js &
           echo "RP_PID=$!" >> "$GITHUB_ENV"
           for _ in $(seq 1 30); do
             curl -fsS "http://127.0.0.1:${RP_PORT}/" >/dev/null 2>&1 && { echo "RP is up"; break; }
@@ -373,7 +373,7 @@ jobs:
       # `test:sandbox` script runs ONLY the `sandbox-signin` project — its OWN colocated
       # spec (recipes/sandbox-signin/e2e/sandbox-signin-journey.spec.ts), which asserts
       # the RP points at the sandbox per-env issuer. The reporter writes
-      # recipes/totp-signin/E2E_RESULTS.md from this run.
+      # recipes/magic-link-cross-device-signin/E2E_RESULTS.md from this run.
       - name: Run the Playwright harness (Path B — sandbox test-inbox capture)
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
@@ -402,7 +402,7 @@ jobs:
           path: |
             e2e/playwright-report/
             e2e/test-results/
-            recipes/totp-signin/E2E_RESULTS.md
+            recipes/magic-link-cross-device-signin/E2E_RESULTS.md
           if-no-files-found: warn
           retention-days: 14
 
@@ -415,7 +415,7 @@ jobs:
         if: always() && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          FILE=recipes/totp-signin/E2E_RESULTS.md
+          FILE=recipes/magic-link-cross-device-signin/E2E_RESULTS.md
           if git diff --quiet -- "$FILE"; then
             echo "E2E_RESULTS.md unchanged — nothing to commit."
             exit 0
@@ -423,7 +423,7 @@ jobs:
           git config user.name "thoryn-ci[bot]"
           git config user.email "ci@thoryn.io"
           git add "$FILE"
-          git commit -m "chore(e2e): update totp-signin E2E_RESULTS.md from CI run ${{ github.run_id }} [skip ci]"
+          git commit -m "chore(e2e): update magic-link-cross-device-signin E2E_RESULTS.md from CI run ${{ github.run_id }} [skip ci]"
           # Rebase onto the latest main so the sibling recipe's commit-back can't cause a non-fast-forward.
           git pull --rebase --autostash origin main
           git push origin HEAD:main

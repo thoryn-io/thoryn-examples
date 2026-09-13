@@ -99,5 +99,14 @@ export default defineConfig({
       retries: 0,
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "passkey-signin",
+      testDir: "../recipes/passkey-signin/e2e",
+      // retries:0 — ONE per-run user + ONE CDP virtual authenticator per test; the full journey enrols
+      // a passkey then enforces the flow, so a retry would re-run after the flow is already enforcing
+      // passkey (the "password-only first sign-in" step would then be passkey-challenged). Deterministic.
+      retries: 0,
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

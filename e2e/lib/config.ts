@@ -78,6 +78,20 @@ export const config = {
   cli: {
     jarPath: process.env.THORYN_JAR ?? "",
     envSlug: process.env.SANDBOX_ENV_SLUG ?? "",
+    /**
+     * SSO-3081 — the pieces the suspended-login negative case (simple-signin) needs to drive a
+     * user SUSPEND through the supported `thoryn users suspend` surface. The helper authenticates
+     * a FRESH client-credentials session into an ISOLATED token store (its own HOME) requesting
+     * ONLY `tenant:users.{write,read}`, so a missing scope grant fails just that one test rather
+     * than the whole suite, and never clobbers the provisioning session the teardown reuses.
+     * `apiKey` is the same `<client-id>:<client-secret>` the workflow signs in with; `workspaceSlug`
+     * is the standing workspace (the `--confirm` value on the production plane). All empty locally →
+     * the suspended test skips.
+     */
+    apiKey: process.env.THORYN_API_KEY ?? "",
+    issuer: process.env.THORYN_ISSUER ?? "",
+    gateway: process.env.THORYN_GATEWAY ?? "https://api.stg.thoryn.org",
+    workspaceSlug: process.env.THORYN_WORKSPACE_SLUG ?? "",
   },
 
   /** Credentials for the self-service sign-up. A fresh email per run (see uniqueEmail). */

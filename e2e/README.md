@@ -32,7 +32,10 @@ injection, no stubbing.
 > **customer-plane `client_credentials` API key** scoped to the standing workspace (the
 > model proven in `thoryn-cli`). The key authenticates at the workspace's per-tenant
 > issuer requesting `tenant:applications.write` + `tenant:applications.read` +
-> `tenant:email.write`. Because a tenant-scoped key **cannot create workspaces**, the run
+> `tenant:email.write` (and, for the SSO-3081 suspended-login case, `tenant:users.write` +
+> `tenant:users.read` — the suspend case drives a fresh isolated CLI session that requests only
+> those two; if the key is not granted them, only that one test fails, not the suite). Because a
+> tenant-scoped key **cannot create workspaces**, the run
 > provisions an **ephemeral app inside the standing workspace** (`ci-signin`) and points
 > that workspace's **BYO-SMTP at the per-run tunnel** each run — it does not mint (or
 > hard-delete) a fresh workspace. One self-service test user is therefore left behind per
@@ -184,7 +187,7 @@ Set it under **Settings → Secrets and variables → Actions**:
 
 | Kind | Name | Required | What it is |
 |---|---|---|---|
-| secret | `THORYN_API_KEY` | yes | `<client-id>:<client-secret>` of the customer-plane `client_credentials` API key scoped to the standing workspace, granted `tenant:applications.write` + `tenant:applications.read` + `tenant:email.write`. Same secret `conformance.yml` uses. |
+| secret | `THORYN_API_KEY` | yes | `<client-id>:<client-secret>` of the customer-plane `client_credentials` API key scoped to the standing workspace, granted `tenant:applications.write` + `tenant:applications.read` + `tenant:email.write` + `tenant:users.write` + `tenant:users.read` (the last two for the SSO-3081 suspended-login case). Same secret `conformance.yml` uses. |
 | secret | `OATHY_CLI_TOKEN` | yes | A token (PAT / GitHub App) that can read `thoryn-io/oauthy` **releases**, to download the prebuilt `thoryn.jar` (`cli-v*` release). Same as `conformance.yml`. |
 | secret | `NGROK_AUTHTOKEN` | yes¹ | Authtoken for a **free** [ngrok](https://ngrok.com) account — used to open the public TCP tunnel to the in-job Mailpit SMTP port. |
 | variable | `CI_WORKSPACE_SLUG` | yes | Slug of the standing workspace the API key is scoped to (e.g. `ci-conformance`). |

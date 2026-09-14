@@ -1,0 +1,92 @@
+# SSO-3044 (epic SSO-3042) — `stepup-signin`: the RFC 9470 / OIDC re-authentication example. Same
+# per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able user),
+# but the browser journey proves a SENSITIVE ACTION forces a FRESH authentication: after signing in
+# normally, the relying party starts a second authorize with `prompt=login`, and the user is
+# CHALLENGED to authenticate again even though the session is still active — the hub honours
+# `prompt=login` end to end (SSO-3071) and re-drives the identity login.
+#
+# Why the recipe is just env + app + user (no step-up-specific action): step-up here is driven ENTIRELY
+# by the relying party's authorize request (`prompt=login`) — a standard OIDC parameter — so it needs
+# no tenant/app configuration and no new allowlisted action or scope. The provisioning is the same
+# shape as sandbox-signin; the whole re-authentication behaviour lives in the e2e journey + the
+# loopback RP's "sensitive action" route.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
+# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
+# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user).
+apiVersion: thoryn.io/examples/v1
+id: stepup-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, then prove a sensitive action forces a fresh re-authentication (OIDC prompt=login / RFC 9470 step-up); then hard-delete the sandbox.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), applications.create (write) + the applications.get verify (read),
+    # identity.registerUser (users.write). No step-up-specific scope — re-authentication is requested by
+    # the relying party via the standard OIDC `prompt=login` parameter, not a provisioning call.
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+  # Same baseline as sandbox-signin — fetched-catalog + env.create/env.delete + identity.registerUser.
+  # No step-up-specific recipe action, so no newer CLI is required.
+  minCliVersion: 0.3.7
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "stepup-signin-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Step-up Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Step-up Sign-in App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox; the journey signs in then re-authenticates this user.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown (child-first): delete the app, then hard-delete the sandbox it lives in. The hard-delete
+# cascades the client + the user — nothing outlives the environment.
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

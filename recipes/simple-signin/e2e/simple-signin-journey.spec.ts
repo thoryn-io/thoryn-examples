@@ -37,9 +37,9 @@
  * │ (register.html #registerForm / login.html #passwordForm).                      │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { findVerificationLink } from "../../../e2e/lib/mailbox";
+import { findVerificationLink, findResetLink } from "../../../e2e/lib/mailbox";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -77,8 +77,13 @@ async function submitRegistration(page: Page, email: string): Promise<void> {
 
 /** Fill + submit the hosted login form (identity login.html #passwordForm). */
 async function submitLogin(page: Page, email: string): Promise<void> {
+  await submitLoginWith(page, email, config.password);
+}
+
+/** Fill + submit the hosted login form with an EXPLICIT password (SSO-3078: after a reset the password changed). */
+async function submitLoginWith(page: Page, email: string, password: string): Promise<void> {
   await page.locator("#passwordEmail").fill(email);
-  await page.locator("#password").fill(config.password);
+  await page.locator("#password").fill(password);
   await page.locator("#passwordForm button[type=submit]").click();
 }
 
@@ -87,12 +92,15 @@ test.describe("simple-signin example — self-service sign-up → verify email �
     browser,
     request,
   }) => {
-    // RP round-trip + real email delivery + Mailpit polling + two hosted form legs.
-    test.setTimeout(180_000);
+    // RP round-trip + TWO real emails (verify + reset) + Mailpit polling + several hosted form legs.
+    test.setTimeout(300_000);
 
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
     const email = uniqueEmail();
+    // SSO-3078: the reset legs run in a SECOND, session-less context so the hosted login FORM renders
+    // (an authenticated session would SSO straight through the 'Forgot your password?' entry).
+    let context2: BrowserContext | null = null;
 
     try {
       // 1) RP → "Sign in with Thoryn" → the workspace hub → the hosted login form.
@@ -165,7 +173,80 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         // violation — presence anywhere proves the correct user is signed in.
         await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
       });
+
+      // 6) SSO-3078 — self-service PASSWORD RESET. A FRESH, session-less context so the hosted
+      //    login form (and its "Forgot your password?" link) actually renders.
+      context2 = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page2 = await context2.newPage();
+      const newPassword = `Reset-${Date.now()}-Pw2!`;
+
+      await test.step(STEPS.forgot, async () => {
+        await startSignInFromRp(page2);
+        await expect(page2.locator("#passwordForm")).toBeVisible();
+        await page2.locator("#forgotPasswordLink").click();
+        await expect(
+          page2.locator("input[name=email]"),
+          "the login's forgot-password link reaches identity's /password-reset/initiate form",
+        ).toBeVisible();
+        await page2.locator("input[name=email]").fill(email);
+        await page2.locator("button[type=submit]").click();
+        await expect(
+          page2.getByText(/you will receive a password reset link/i),
+          "the reset request returns the constant-time, non-enumerating confirmation",
+        ).toBeVisible();
+      });
+
+      // 7) Capture the REAL password-reset email from the SAME in-job Mailpit sink.
+      let resetLink: string | null = null;
+      await test.step(STEPS.captureReset, async () => {
+        await expect
+          .poll(
+            async () => {
+              resetLink = await findResetLink(request, config.mailpit, email);
+              return resetLink;
+            },
+            {
+              message: `password-reset email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+              timeout: 90_000,
+              intervals: [1000, 2000, 3000, 5000],
+            },
+          )
+          .not.toBeNull();
+        expect(
+          resetLink!,
+          "reset link points at identity's password-reset page",
+        ).toContain("/password-reset?token=");
+      });
+
+      // 8) Follow the captured link → set a NEW password → success.
+      await test.step(STEPS.reset, async () => {
+        await page2.goto(resetLink!, { waitUntil: "domcontentloaded" });
+        await expect(
+          page2.locator("input[name=newPassword]"),
+          "the captured reset link opens the set-new-password form",
+        ).toBeVisible();
+        await page2.locator("input[name=newPassword]").fill(newPassword);
+        await page2.locator("input[name=confirmPassword]").fill(newPassword);
+        await page2.locator("button[type=submit]").click();
+        await expect(
+          page2.getByText(/your password has been updated/i),
+          "setting the new password succeeds and the single-use token is consumed",
+        ).toBeVisible();
+      });
+
+      // 9) Sign in with the NEW password → back on the RP protected page.
+      await test.step(STEPS.signinNew, async () => {
+        await startSignInFromRp(page2);
+        await expect(page2.locator("#passwordForm")).toBeVisible();
+        await submitLoginWith(page2, email, newPassword);
+        await expect(
+          page2.getByText(/you are signed in as/i),
+          "signing in with the NEW password completes the OIDC flow to the RP protected page",
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(page2.getByText(email, { exact: false }).first()).toBeVisible();
+      });
     } finally {
+      if (context2) await context2.close();
       await context.close();
     }
   });

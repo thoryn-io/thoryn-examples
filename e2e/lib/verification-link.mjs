@@ -14,3 +14,17 @@ export function extractVerificationLink(body) {
   const match = body.match(/https?:\/\/[^\s"'<>]+\/verify-email\?token=[A-Za-z0-9_-]+/);
   return match ? match[0] : null;
 }
+
+/**
+ * SSO-3078 — extract the identity password-RESET link (`<base>/password-reset?token=…`)
+ * from an email body. Same URL-safe base64 token shape as the verify link
+ * (PasswordResetService.generateToken → Base64 url-encoder, no padding). Returns the
+ * FIRST such absolute URL, or null. The `?token=` suffix distinguishes it from the
+ * `/password-reset/initiate` request page.
+ * @param {string} body
+ * @returns {string | null}
+ */
+export function extractResetLink(body) {
+  const match = body.match(/https?:\/\/[^\s"'<>]+\/password-reset\?token=[A-Za-z0-9_-]+/);
+  return match ? match[0] : null;
+}

@@ -252,6 +252,60 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
     }
   });
 
+  // Runs while MFA is still enrolled (before the disable test below): regenerate the account's
+  // recovery (backup) codes on the hosted account page and assert a fresh, distinct set is issued.
+  test("recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes)", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(!enrolledSecret, "depends on the full-journey test having enrolled TOTP (shares its secret)");
+    const context = await browser.newContext({ ignoreHTTPSErrors: true });
+    const page = await context.newPage();
+    const email = `${config.cli.envSlug || "totp-signin"}@example.com`;
+
+    try {
+      let identityOrigin = "";
+      await test.step("Sign in (password + TOTP challenge) to reach the account portal", async () => {
+        await startSignInFromRp(page);
+        identityOrigin = await submitPassword(page, email);
+        await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
+        const challenge = await verifyTotpChallenge(page, totp(enrolledSecret));
+        expect(challenge.status < 300 && !!challenge.data.redirect, `TOTP challenge should 2xx (got ${challenge.status})`).toBeTruthy();
+        await page.goto(challenge.data.redirect!, { waitUntil: "domcontentloaded" });
+        await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
+      });
+
+      await test.step("Regenerate recovery codes on /account/security — a fresh set of 5, distinct from the previous set", async () => {
+        await page.goto(`${identityOrigin}/account/security`, { waitUntil: "domcontentloaded" });
+        expect(new URL(page.url()).pathname, "the federated session authorizes the account portal (SSO-3049)").toContain(
+          "/account/security",
+        );
+        const regen = async () =>
+          page.evaluate(async () => {
+            const token = document.querySelector('meta[name="_csrf"]')?.getAttribute("content") ?? "";
+            const hdr = document.querySelector('meta[name="_csrf_header"]')?.getAttribute("content") ?? "X-CSRF-TOKEN";
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (token) headers[hdr] = token;
+            const res = await fetch("/account/recovery-codes/regenerate", { method: "POST", headers });
+            return { status: res.status, body: res.ok ? ((await res.json()) as { codes?: string[] }) : null };
+          });
+
+        const first = await regen();
+        expect(first.status, "regenerate returns 200").toBe(200);
+        expect(first.body?.codes?.length, "a fresh set of 5 recovery codes is issued").toBe(5);
+
+        // Regenerating again REVOKES the previous set and issues a new one — the codes must differ.
+        const second = await regen();
+        expect(second.status).toBe(200);
+        expect(second.body?.codes?.length).toBe(5);
+        const overlap = (second.body!.codes ?? []).filter((c) => (first.body!.codes ?? []).includes(c));
+        expect(overlap.length, "regeneration rotates the codes — no code carries over from the previous set").toBe(0);
+      });
+    } finally {
+      await context.close();
+    }
+  });
+
   // Runs LAST (serial, workers:1): it turns MFA OFF for the standing user, so it must come after the
   // tests above that rely on the second-factor challenge being active.
   test("MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged", async ({

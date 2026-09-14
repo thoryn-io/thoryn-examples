@@ -70,13 +70,12 @@ on:
         description: "Per-example sandbox recipe id to run (default: magic-code-signin)"
         required: false
         default: magic-code-signin
-  # SSO-3047 — nightly enabled after the first green live run confirmed the magic-code journey on staging.
-  # SCAFFOLD (SSO-2595) — dispatch-ONLY until the first green live run confirms the seams (magic_code
-  # enabled via login-methods set renders on the sandbox login; the code is captured on channel
-  # magic_code; request/verify selectors). Needs SSO-3073 + SSO-3074 live on staging + cli-v0.9.0.
-  # Enable the nightly below once it is green, like the other example workflows.
-  #   schedule:
-  #     - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  # Nightly, enabled after the first green live run (run 34834903757) confirmed the magic-code journey on
+  # staging: magic_code enabled via `login-methods set` (SSO-3075) renders on the sandbox login
+  # (SSO-3073/3076), the code is captured on channel magic_code (SSO-3074), and verify resumes the saved
+  # authorize to the RP (SSO-3077). Requires SSO-3073/3074/3076/3077 live on staging + cli-v0.9.0.
+  schedule:
+    - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC

@@ -40,7 +40,7 @@
 import { test, expect, type Page, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
 import { findVerificationLink, findResetLink, findUnlockLink } from "../../../e2e/lib/mailbox";
-import { userAdminConfigured, loginForUserAdmin, suspendUserByEmail } from "../../../e2e/lib/user-admin.mjs";
+import { userAdminConfigured, loginForUserAdmin, suspendUserByEmail, listUsersDiagnostic } from "../../../e2e/lib/user-admin.mjs";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -510,7 +510,10 @@ test.describe("simple-signin example — self-service sign-up → verify email �
               await new Promise((r) => setTimeout(r, 3000));
             }
           }
-          if (lastError) throw lastError;
+          if (lastError) {
+            const dump = await listUsersDiagnostic(config, tokenFile);
+            throw new Error(`${(lastError as Error).message}\n[diagnostic] thoryn users list →\n${dump}`);
+          }
         });
 
         await test.step("The suspended account's sign-in shows the DISTINCT suspended notice", async () => {

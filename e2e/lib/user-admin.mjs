@@ -66,3 +66,21 @@ export async function suspendUserByEmail(cfg, tokenFile, email) {
     "users", "suspend", "--email", email, "--confirm", cfg.cli.workspaceSlug, "--gateway", cfg.cli.gateway,
   ]);
 }
+
+/**
+ * Diagnostic: return `thoryn users list` (unfiltered, JSON) for the isolated session, or a short error
+ * string. Used only to enrich a "no user with email" failure so the run log shows whether the directory
+ * is empty (a livemode/env-plane mismatch) or holds users under a different email/plane.
+ */
+export async function listUsersDiagnostic(cfg, tokenFile) {
+  try {
+    const { stdout } = await execFileP(
+      "java",
+      ["-jar", cfg.cli.jarPath, "users", "list", "--limit", "50", "--output", "json", "--gateway", cfg.cli.gateway],
+      { env: isolatedEnv(tokenFile), timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+    );
+    return stdout.trim().slice(0, 2000);
+  } catch (e) {
+    return `users list failed: ${[e.stderr, e.stdout].map((s) => (s || "").toString().trim()).filter(Boolean).join(" | ") || e.message}`;
+  }
+}

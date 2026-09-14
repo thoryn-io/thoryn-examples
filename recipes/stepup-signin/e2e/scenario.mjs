@@ -20,8 +20,11 @@ export const scenario = {
     "normally, then the relying party performs a SENSITIVE ACTION by starting a second authorize with " +
     "the standard OIDC `prompt=login` parameter (RFC 9470 step-up). Even though the session is still " +
     "active, the hub re-drives the hosted login and the user is CHALLENGED to authenticate again; after " +
-    "re-authenticating, the action completes with a fresh auth_time. The control path proves a plain " +
-    "re-authorize (no prompt=login) rides the session silently. The whole sandbox (client + user) is " +
+    "re-authenticating, the action completes with a fresh auth_time. The error path proves the re-auth " +
+    "is a real credential check: a wrong password is rejected and the sensitive action does not " +
+    "complete. (Examples run in a SANDBOX, where the hub also pushes prompt=login on every authorize " +
+    "for isolation, SSO-2981; the RP-requested prompt=login is the pattern that governs the production " +
+    "plane, made to work end to end by SSO-3071.) The whole sandbox (client + user) is " +
     "hard-deleted on teardown. Step-up is requested by the RP via a standard OIDC parameter, so no " +
     "step-up-specific recipe action or scope is needed.",
   steps: [

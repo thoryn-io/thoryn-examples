@@ -39,7 +39,7 @@
  */
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { findVerificationLink, findResetLink } from "../../../e2e/lib/mailbox";
+import { findVerificationLink, findResetLink, findUnlockLink } from "../../../e2e/lib/mailbox";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -250,6 +250,112 @@ test.describe("simple-signin example — self-service sign-up → verify email �
       await context.close();
     }
   });
+
+  test(
+    "account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905)",
+    async ({ browser, request }) => {
+      // Register + verify (fresh account) + lock (5 attempts) + unlock email + landing + sign in.
+      test.setTimeout(300_000);
+
+      const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page = await context.newPage();
+      const email = uniqueEmail();
+
+      try {
+        // Pre-req: a real, verified account with a known password (so a lock is meaningful).
+        await test.step("Register + verify a fresh end user to lock", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await gotoRegisterFromLogin(page);
+          await submitRegistration(page, email);
+          await expect(page.getByRole("heading", { name: /check your email/i })).toBeVisible();
+          let verifyLink: string | null = null;
+          await expect
+            .poll(
+              async () => {
+                verifyLink = await findVerificationLink(request, config.mailpit, email);
+                return verifyLink;
+              },
+              { timeout: 90_000, intervals: [1000, 2000, 3000, 5000] },
+            )
+            .not.toBeNull();
+          await page.goto(verifyLink!, { waitUntil: "domcontentloaded" });
+          await expect(page.getByRole("heading", { name: /your email is verified/i })).toBeVisible();
+        });
+
+        // LOCK: the SSO-1895 per-account lockout trips after 5 consecutive failures. The hosted
+        // login error is deliberately GENERIC (no lock-state / existence leak), so we assert only
+        // that each attempt stays on the login form (never reaches the RP protected page).
+        await test.step("Five consecutive wrong-password attempts lock the account", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          for (let i = 0; i < 5; i++) {
+            await submitLoginWith(page, email, `wrong-password-${i}`);
+            await expect(
+              page.locator("#passwordForm"),
+              "a rejected password re-renders the login form (generic error, no lock-state leak)",
+            ).toBeVisible();
+          }
+        });
+
+        // UNLOCK: request an unlock link via the login's "Unlock via email" affordance. The request
+        // endpoint is constant-time and its own limiter (independent of the form-login velocity cap).
+        await test.step("Request an unlock link via the login 'Unlock via email' affordance", async () => {
+          await page.locator("#unlockToggle").click();
+          await expect(page.locator("#unlockEmail")).toBeVisible();
+          await page.locator("#unlockEmail").fill(email);
+          await page.locator("#unlockForm button[type=submit]").click();
+          await expect(
+            page.locator("#unlockStatus"),
+            "the unlock request returns the constant-time, non-enumerating confirmation",
+          ).toContainText(/unlock link is on its way/i);
+        });
+
+        // Capture the REAL unlock email from the same in-job Mailpit sink + confirm on the landing page.
+        let unlockLink: string | null = null;
+        await test.step("Capture the unlock email and confirm on the landing page", async () => {
+          await expect
+            .poll(
+              async () => {
+                unlockLink = await findUnlockLink(request, config.mailpit, email);
+                return unlockLink;
+              },
+              {
+                message: `unlock email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+                timeout: 90_000,
+                intervals: [1000, 2000, 3000, 5000],
+              },
+            )
+            .not.toBeNull();
+          expect(unlockLink!, "unlock link points at identity's account-unlock landing").toContain(
+            "/account/unlock?token=",
+          );
+          await page.goto(unlockLink!, { waitUntil: "domcontentloaded" });
+          await page.getByRole("button", { name: /unlock my account/i }).click();
+          await expect(
+            page.getByRole("heading", { name: /account unlocked/i }),
+            "confirming the unlock token unlocks the account",
+          ).toBeVisible();
+        });
+
+        // Sign in with the CORRECT password → RP protected. Small settle so the per-username form-login
+        // minute budget (5/min — exactly the 5 lock attempts) has refilled a token for this login.
+        await test.step("Sign in with the correct password → land back on /protected", async () => {
+          await page.waitForTimeout(15_000);
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await submitLoginWith(page, email, config.password);
+          await expect(
+            page.getByText(/you are signed in as/i),
+            "the unlocked account signs in with the original password and reaches the RP protected page",
+          ).toBeVisible({ timeout: 30_000 });
+          await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
+        });
+      } finally {
+        await context.close();
+      }
+    },
+  );
 
   test("error path: a garbage verify-email token shows the neutral invalid screen", async ({
     browser,

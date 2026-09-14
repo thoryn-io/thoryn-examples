@@ -4,7 +4,7 @@
 // isolation — the parse regex is exactly what the live Mailpit capture depends on.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractVerificationLink, extractResetLink } from "./verification-link.mjs";
+import { extractVerificationLink, extractResetLink, extractUnlockLink } from "./verification-link.mjs";
 
 test("extracts the verify-email link from an HTML email body", () => {
   const body = `<p>Welcome! Please
@@ -52,4 +52,13 @@ test("SSO-3078: extracts the password-reset link from an HTML email body", () =>
 test("SSO-3078: reset extractor does not match the /password-reset/initiate request page", () => {
   const body = 'Request a reset at https://h/password-reset/initiate (no token here).';
   assert.equal(extractResetLink(body), null);
+});
+
+test("SSO-1905: extracts the account-unlock link from an HTML email body", () => {
+  const body = `<p>Unlock:
+    <a href="https://identity.stg.thoryn.org/account/unlock?token=unl-XYZ_456">unlock my account</a>.</p>`;
+  assert.equal(
+    extractUnlockLink(body),
+    "https://identity.stg.thoryn.org/account/unlock?token=unl-XYZ_456",
+  );
 });

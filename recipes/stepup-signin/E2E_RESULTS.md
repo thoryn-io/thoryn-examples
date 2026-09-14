@@ -8,13 +8,13 @@
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-14T02:30:31.950Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-14T04:19:39.790Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
 **Step-up / re-authentication: a sensitive action forces a fresh login (OIDC prompt=login, RFC 9470)**
 
-Drives the `stepup-signin` recipe's loopback relying party against the staging SaaS in a real browser, pointed at a FRESH per-run SANDBOX ENVIRONMENT (env.create). A verified user signs in normally, then the relying party performs a SENSITIVE ACTION by starting a second authorize with the standard OIDC `prompt=login` parameter (RFC 9470 step-up). Even though the session is still active, the hub re-drives the hosted login and the user is CHALLENGED to authenticate again; after re-authenticating, the action completes with a fresh auth_time. The control path proves a plain re-authorize (no prompt=login) rides the session silently. The whole sandbox (client + user) is hard-deleted on teardown. Step-up is requested by the RP via a standard OIDC parameter, so no step-up-specific recipe action or scope is needed.
+Drives the `stepup-signin` recipe's loopback relying party against the staging SaaS in a real browser, pointed at a FRESH per-run SANDBOX ENVIRONMENT (env.create). A verified user signs in normally, then the relying party performs a SENSITIVE ACTION by starting a second authorize with the standard OIDC `prompt=login` parameter (RFC 9470 step-up). Even though the session is still active, the hub re-drives the hosted login and the user is CHALLENGED to authenticate again; after re-authenticating, the action completes with a fresh auth_time. The error path proves the re-auth is a real credential check: a wrong password is rejected and the sensitive action does not complete. (Examples run in a SANDBOX, where the hub also pushes prompt=login on every authorize for isolation, SSO-2981; the RP-requested prompt=login is the pattern that governs the production plane, made to work end to end by SSO-3071.) The whole sandbox (client + user) is hard-deleted on teardown. Step-up is requested by the RP via a standard OIDC parameter, so no step-up-specific recipe action or scope is needed.
 
 ## Steps / assertions
 
@@ -30,19 +30,19 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 12.5s |
-| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 8.6s |
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 8.5s |
+| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 5.8s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/stepup-signin-34799349999-1 |
+| Issuer | examples.hub.stg.thoryn.org/stepup-signin-34805540071-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34799349999)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34805540071)
 - [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -63,7 +63,8 @@ export async function loginForUserAdmin(cfg) {
  */
 export async function suspendUserByEmail(cfg, tokenFile, email) {
   await runCli(cfg, isolatedEnv(tokenFile), [
-    "users", "suspend", "--email", email, "--confirm", cfg.cli.workspaceSlug, "--gateway", cfg.cli.gateway,
+    "users", "suspend", "--email", email, "--confirm", cfg.cli.workspaceSlug,
+    "--environment", cfg.cli.usersEnvironment, "--gateway", cfg.cli.gateway,
   ]);
 }
 
@@ -76,7 +77,8 @@ export async function listUsersDiagnostic(cfg, tokenFile) {
   try {
     const { stdout } = await execFileP(
       "java",
-      ["-jar", cfg.cli.jarPath, "users", "list", "--limit", "50", "--output", "json", "--gateway", cfg.cli.gateway],
+      ["-jar", cfg.cli.jarPath, "users", "list", "--limit", "50", "--output", "json",
+        "--environment", cfg.cli.usersEnvironment, "--gateway", cfg.cli.gateway],
       { env: isolatedEnv(tokenFile), timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
     );
     return stdout.trim().slice(0, 2000);

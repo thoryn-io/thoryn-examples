@@ -92,6 +92,14 @@ export const config = {
     issuer: process.env.THORYN_ISSUER ?? "",
     gateway: process.env.THORYN_GATEWAY ?? "https://api.stg.thoryn.org",
     workspaceSlug: process.env.THORYN_WORKSPACE_SLUG ?? "",
+    /**
+     * SSO-3068/SSO-3081 — the environment the suspend targets (rides `--environment` →
+     * X-Thoryn-Environment). Self-service users registered through a marker-less RP authorize land in
+     * `production` (LoginModeResolver.currentLoginEnvironmentSlug default; confirmed against staging's
+     * identity DB), and a client-credentials/CI session can't select an environment via `env use`, so
+     * the suspend must name it explicitly. Overridable if the standing workspace's self-service plane differs.
+     */
+    usersEnvironment: process.env.THORYN_USERS_ENVIRONMENT ?? "production",
   },
 
   /** Credentials for the self-service sign-up. A fresh email per run (see uniqueEmail). */

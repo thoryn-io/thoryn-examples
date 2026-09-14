@@ -129,7 +129,46 @@ async function verifyTotpChallenge(
   }, code);
 }
 
+/**
+ * Disable MFA from the hosted account page exactly as account/security.html's own handler does: an
+ * in-page POST /account/mfa/disable {currentPassword, verificationCode} on the session chain (CSRF via
+ * the rendered _csrf meta). Disabling is re-auth-gated — it proves BOTH knowledge (the password) and
+ * possession (a live TOTP code) — so the caller passes the current authenticator [code]. Returns the
+ * status + parsed body ({message} on success).
+ */
+async function disableMfaViaAccountPage(
+  page: Page,
+  identityOrigin: string,
+  password: string,
+  code: string,
+): Promise<{ status: number; data: { message?: string; error?: string } }> {
+  await page.goto(`${identityOrigin}/account/security`, { waitUntil: "domcontentloaded" });
+  expect(
+    new URL(page.url()).pathname,
+    "the federated session authorizes the account portal (SSO-3049)",
+  ).toContain("/account/security");
+  return page.evaluate(
+    async ({ password, code }) => {
+      const token = document.querySelector('meta[name="_csrf"]')?.getAttribute("content") ?? "";
+      const hdr = document.querySelector('meta[name="_csrf_header"]')?.getAttribute("content") ?? "X-CSRF-TOKEN";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers[hdr] = token;
+      const res = await fetch("/account/mfa/disable", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ currentPassword: password, verificationCode: code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { status: res.status, data };
+    },
+    { password, code },
+  );
+}
+
 test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh sign-in is challenged for the second factor (SSO-3043)", () => {
+  // Shared across the serial (workers:1) tests: the base32 secret the full-journey test enrols, so the
+  // later MFA-lifecycle test can compute a live code to disable the same standing user's authenticator.
+  let enrolledSecret = "";
   test("full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected", async ({
     browser,
   }) => {
@@ -154,6 +193,7 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       let secret = "";
       await test.step(STEPS.enroll, async () => {
         secret = await enrollTotp(page, identityOrigin);
+        enrolledSecret = secret; // share with the MFA-lifecycle (disable) test below
       });
 
       // 3) Fresh sign-in → now CHALLENGED for the second factor → computed code → /protected.
@@ -207,6 +247,61 @@ test.describe("totp-signin example — enrol a TOTP authenticator, then a fresh 
       ).toBeTruthy();
       expect(rejected.data.redirect, "a wrong code does NOT return a resume redirect").toBeFalsy();
       await expect(page.getByText(/you are signed in as/i)).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  // Runs LAST (serial, workers:1): it turns MFA OFF for the standing user, so it must come after the
+  // tests above that rely on the second-factor challenge being active.
+  test("MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(!enrolledSecret, "depends on the full-journey test having enrolled TOTP (shares its secret)");
+    const context = await browser.newContext({ ignoreHTTPSErrors: true });
+    const page = await context.newPage();
+    const email = `${config.cli.envSlug || "totp-signin"}@example.com`;
+
+    try {
+      let identityOrigin = "";
+      await test.step("Sign in (password + TOTP challenge) to reach the account portal", async () => {
+        await startSignInFromRp(page);
+        identityOrigin = await submitPassword(page, email);
+        await expect(page.locator("#mfa-form #code")).toBeVisible({ timeout: 30_000 });
+        const challenge = await verifyTotpChallenge(page, totp(enrolledSecret));
+        expect(
+          challenge.status < 300 && !!challenge.data.redirect,
+          `TOTP challenge should 2xx with a resume redirect (got ${challenge.status})`,
+        ).toBeTruthy();
+        await page.goto(challenge.data.redirect!, { waitUntil: "domcontentloaded" });
+        await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
+      });
+
+      await test.step("Disable MFA on the hosted /account/security page (re-auth: current password + live TOTP code)", async () => {
+        const result = await disableMfaViaAccountPage(page, identityOrigin, config.password, totp(enrolledSecret));
+        expect(
+          result.status === 200,
+          `disable MFA should 200 (got ${result.status}: ${JSON.stringify(result.data)})`,
+        ).toBeTruthy();
+        expect(String(result.data.message ?? "").toLowerCase(), "the disable confirmation names the outcome").toContain("disabled");
+      });
+
+      await test.step("A fresh sign-in is now PASSWORD-ONLY — no second-factor challenge", async () => {
+        await context.clearCookies();
+        await startSignInFromRp(page);
+        await submitPassword(page, email);
+        // With MFA disabled, the password sign-in resumes straight to the RP protected page; the TOTP
+        // challenge screen must never appear.
+        await expect(
+          page.getByText(/you are signed in as/i),
+          "after disabling MFA the password-only sign-in reaches /protected directly",
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(
+          page.locator("#mfa-form #code"),
+          "no second-factor challenge is shown once MFA is disabled",
+        ).toHaveCount(0);
+      });
     } finally {
       await context.close();
     }

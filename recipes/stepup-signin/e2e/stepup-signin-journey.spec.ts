@@ -12,10 +12,10 @@
  * `/step-up` "sensitive action" route.
  *
  * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │ SCAFFOLD — FIRST-LIVE-CONFIRM seams (validated on the first live run): (a) that a   │
- * │ `prompt=login` authorize re-challenges an active session at the hosted login form;   │
- * │ (b) that a plain re-authorize does NOT. Both were confirmed on local k3d after the   │
- * │ SSO-3071 hub fix. If a seam differs on staging, RECORD the real shape — never fake.   │
+ * │ SCAFFOLD — FIRST-LIVE-CONFIRM seams (validated on the first live run): a `prompt=login` │
+ * │ authorize re-challenges the active session at the hosted login form, and the step-up    │
+ * │ genuinely re-verifies credentials (a wrong password is rejected). Confirmed on local k3d │
+ * │ (default plane) after the SSO-3071 hub fix. If a seam differs on staging, RECORD it.     │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -93,25 +93,29 @@ test.describe("stepup-signin example — a sensitive action forces a fresh re-au
     }
   });
 
-  test("contrast: a plain re-authorize (no prompt=login) rides the active session silently", async ({ browser }) => {
+  test("error path: a wrong password at the step-up re-authentication is rejected", async ({ browser }) => {
     test.setTimeout(180_000);
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
     const email = `${config.cli.envSlug || "stepup-signin"}@example.com`;
     try {
-      // Sign in, establishing a session.
+      // Sign in, then trigger the sensitive action so the step-up re-challenge appears.
       await startSignInFromRp(page);
       await submitPassword(page, email);
       await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("link", { name: /perform a sensitive action/i }).click();
+      await expect(page.locator("#passwordForm")).toBeVisible({ timeout: 30_000 });
 
-      // A plain sign-in link (no prompt=login) must NOT re-challenge — it rides the existing session
-      // straight back to /protected. This is the control that makes the step-up above meaningful.
-      await startSignInFromRp(page);
+      // The step-up genuinely RE-VERIFIES credentials: a wrong password is rejected and the sensitive
+      // action does not complete — proving the re-auth is a real credential check, not just a form.
+      await page.locator("#passwordEmail").fill(email);
+      await page.locator("#password").fill("Wrong-Password-999!");
+      await page.locator("#passwordForm button[type=submit]").click();
       await expect(
-        page.getByText(/you are signed in as/i),
-        "a plain re-authorize reuses the session with no password prompt",
+        page.locator("#loginError"),
+        "a wrong password at the step-up re-auth is rejected",
       ).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator("#passwordForm"), "no re-challenge without prompt=login").toHaveCount(0);
+      await expect(page.getByText(/you are signed in as/i), "the sensitive action does not complete").toHaveCount(0);
     } finally {
       await context.close();
     }

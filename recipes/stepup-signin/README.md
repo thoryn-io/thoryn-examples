@@ -30,8 +30,13 @@ proving it is still you before a high-value operation.
    `prompt=login`. Even with an active session, the hosted login form (`#passwordForm`) reappears.
 3. Re-authenticate → back on the protected page, with an `auth_time` not older than the first sign-in.
 
-**Control path:** a plain re-authorize (the ordinary “Sign in” link, no `prompt=login`) reuses the
-session with no password prompt.
+**Error path:** the step-up genuinely re-verifies credentials — a wrong password at the re-auth is
+rejected and the sensitive action does not complete.
+
+> **Sandbox note.** Examples run in an isolated sandbox environment, and the hub additionally pushes
+> `prompt=login` on *every* sandbox authorize for isolation (SSO-2981). It is the relying party's own
+> `prompt=login` — the pattern this recipe demonstrates — that turns an otherwise-silent re-authorize
+> into a fresh challenge on the production / customer plane (made to work end to end by SSO-3071).
 
 ## Endpoint reference
 

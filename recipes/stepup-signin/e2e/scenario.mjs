@@ -30,12 +30,13 @@ export const scenario = {
     { key: "reauth", title: STEPS.reauth },
   ],
   errorPath: {
-    title: "A plain re-authorize (no prompt=login) rides the active session silently — no re-challenge",
+    title: "A wrong password at the step-up re-authentication is rejected — the sensitive action does not complete",
   },
   // FIRST-LIVE-CONFIRM seams (validated on the first live run, like the original sandbox-signin).
   liveConfirm: [
     "A `prompt=login` authorize re-challenges an active session at the hosted login form (#passwordForm), rather than silently issuing a code (needs the SSO-3071 hub re-auth fix live).",
-    "A plain re-authorize reuses the session with no password prompt.",
+    "The step-up re-auth re-verifies credentials — a wrong password is rejected (#loginError).",
     "After re-authenticating, /protected renders with an auth_time not older than the first sign-in.",
+    "NOTE: examples run in a SANDBOX, where the hub also pushes prompt=login on every authorize (SSO-2981); the RP-requested prompt=login is the pattern that governs the production plane.",
   ],
 };

@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-14T08:07:08.772Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-09-14T08:19:22.205Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,10 +20,47 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Enable magic-code for the sandbox (thoryn login-methods set --method magic_code) | ⏳ not yet run |
-| 2 | On the hosted login, request a 6-digit code (email me a code) | ⏳ not yet run |
-| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ⏳ not yet run |
-| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ⏳ not yet run |
+| 1 | Enable magic-code for the sandbox (thoryn login-methods set --method magic_code) | ✅ passed |
+| 2 | On the hosted login, request a 6-digit code (email me a code) | ❌ failed |
+| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ⏭️ skipped |
+| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ⏭️ skipped |
 
 **Error path also covered:** A wrong 6-digit code is rejected at the hosted magic-code challenge
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full journey: enable magic-code → request a code → type it → /protected | ❌ failed | 35.1s |
+| error path: a wrong code is rejected at the magic-code challenge | ❌ failed | 31.7s |
+
+## Diagnostics
+
+```
+[full journey: enable magic-code → request a code → type it → /protected] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: locator('#magicCodeToggle')
+Expected: visible
+Received: <element(s) not found>
+Call log:
+[error path: a wrong code is rejected at the magic-code challenge] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: locator('#magicCodeToggle')
+Expected: visible
+Received: <element(s) not found>
+Call log:
+```
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org/magic-code-signin-34821942393-1 |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34821942393)
+- [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

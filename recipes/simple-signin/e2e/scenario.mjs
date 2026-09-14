@@ -14,6 +14,10 @@ export const STEPS = {
   capture: "Capture the REAL verification email from the in-job Mailpit sink",
   verify: "Follow the captured verify-email link → “Your email is verified”",
   signin: "Return to the RP, sign in with the verified creds → land on /protected",
+  forgot: "Forgot password: on the hosted login, follow “Forgot your password?” → request a reset",
+  captureReset: "Capture the REAL password-reset email from the in-job Mailpit sink",
+  reset: "Follow the captured reset link → set a NEW password → “password updated”",
+  signinNew: "Sign in with the NEW password → land back on /protected",
 };
 
 export const scenario = {
@@ -27,13 +31,17 @@ export const scenario = {
     "login; identity sends a genuine verification email over the tenant's BYO-SMTP, captured " +
     "from an ephemeral in-job Mailpit sink (no DB injection, no stubbing); the captured link " +
     "verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back " +
-    "to the RP's protected page, which renders the ID-token claims.",
+    "to the RP's protected page, which renders the ID-token claims. It then exercises self-service PASSWORD RESET (SSO-3078): from the hosted login Forgot-your-password link the user requests a reset, the genuine reset email is captured from the same Mailpit sink, a new password is set on the reset page, and the user signs back in with it.",
   steps: [
     { key: "hostedLogin", title: STEPS.hostedLogin },
     { key: "register", title: STEPS.register },
     { key: "capture", title: STEPS.capture },
     { key: "verify", title: STEPS.verify },
     { key: "signin", title: STEPS.signin },
+    { key: "forgot", title: STEPS.forgot },
+    { key: "captureReset", title: STEPS.captureReset },
+    { key: "reset", title: STEPS.reset },
+    { key: "signinNew", title: STEPS.signinNew },
   ],
   errorPath: {
     title: "A garbage verify-email token shows the neutral “this link is invalid” screen",

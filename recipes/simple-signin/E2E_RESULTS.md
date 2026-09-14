@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-13T04:46:12.157Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-14T04:50:44.657Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -32,8 +32,8 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 14.6s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.9s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 15.0s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.8s |
 
 ## Environment
 
@@ -46,6 +46,6 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34738602133)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34807422513)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

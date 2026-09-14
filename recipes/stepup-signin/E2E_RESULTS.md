@@ -6,13 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ⏳ not yet run
-**Generated:** 2026-09-14T02:15:48.455Z — by the init generator (e2e/scripts/init-e2e-results.mjs).
-
-> This is the seeded placeholder. It has **not yet run in this environment**; the
-> live journey runs against the staging SaaS in CI (needs the provisioned standing
-> workspace + API key — see the repo `README.md`). The first live run overwrites
-> this file with real pass/fail, timings, diagnostics, and a CI run link.
+**Latest result:** ❌ failed
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-14T02:24:46.134Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,9 +20,40 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Sign in normally — the user now has an active session at the hub | ⏳ not yet run |
-| 2 | Sensitive action (OIDC prompt=login) RE-CHALLENGES the active session at the hosted login form | ⏳ not yet run |
-| 3 | Re-authenticate → the sensitive action completes on the RP protected page (fresh auth_time) | ⏳ not yet run |
+| 1 | Sign in normally — the user now has an active session at the hub | ✅ passed |
+| 2 | Sensitive action (OIDC prompt=login) RE-CHALLENGES the active session at the hosted login form | ✅ passed |
+| 3 | Re-authenticate → the sensitive action completes on the RP protected page (fresh auth_time) | ✅ passed |
 
 **Error path also covered:** A plain re-authorize (no prompt=login) rides the active session silently — no re-challenge
+
+## Tests
+
+| Test | Result | Duration |
+|------|--------|----------|
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 11.8s |
+| contrast: a plain re-authorize (no prompt=login) rides the active session silently | ❌ failed | 37.8s |
+
+## Diagnostics
+
+```
+[contrast: a plain re-authorize (no prompt=login) rides the active session silently] Error: a plain re-authorize reuses the session with no password prompt
+
+[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByText(/you are signed in as/i)
+Expected: visible
+```
+
+## Environment
+
+| Key | Value |
+|-----|-------|
+| Issuer | examples.hub.stg.thoryn.org/stepup-signin-34798992699-1 |
+| Relying party | http://127.0.0.1:8471 |
+| Identity host | https://identity.stg.thoryn.org |
+
+## Links
+
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34798992699)
+- [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -28,3 +28,15 @@ export function extractResetLink(body) {
   const match = body.match(/https?:\/\/[^\s"'<>]+\/password-reset\?token=[A-Za-z0-9_-]+/);
   return match ? match[0] : null;
 }
+
+/**
+ * SSO-1905 — extract the identity ACCOUNT-UNLOCK link (`<base>/account/unlock?token=…`)
+ * from an email body. Same URL-safe base64 token shape as the verify / reset links.
+ * Returns the FIRST such absolute URL, or null.
+ * @param {string} body
+ * @returns {string | null}
+ */
+export function extractUnlockLink(body) {
+  const match = body.match(/https?:\/\/[^\s"'<>]+\/account\/unlock\?token=[A-Za-z0-9_-]+/);
+  return match ? match[0] : null;
+}

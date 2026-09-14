@@ -29,9 +29,9 @@
  * lib/mailbox.parse.test.mjs — the one piece testable without a live sink.
  */
 import type { APIRequestContext } from "@playwright/test";
-import { extractVerificationLink, extractResetLink } from "./verification-link.mjs";
+import { extractVerificationLink, extractResetLink, extractUnlockLink } from "./verification-link.mjs";
 
-export { extractVerificationLink, extractResetLink };
+export { extractVerificationLink, extractResetLink, extractUnlockLink };
 
 /** Everything the Mailpit API needs: the local base URL (no auth). */
 export interface MailpitConfig {
@@ -157,4 +157,19 @@ export async function findResetLink(
   const id = await findLatestMessageIdTo(request, cfg, recipient);
   if (id === null) return null;
   return extractResetLink(await getMessageBody(request, cfg, id));
+}
+
+/**
+ * SSO-1905 — one-shot: find the newest ACCOUNT-UNLOCK email to [recipient] and return its
+ * unlock link (base + /account/unlock?token=...), or null if it has not arrived yet. Wrap in
+ * expect.poll. Same capture path as findVerificationLink (real BYO-SMTP -> in-job Mailpit).
+ */
+export async function findUnlockLink(
+  request: APIRequestContext,
+  cfg: MailpitConfig,
+  recipient: string,
+): Promise<string | null> {
+  const id = await findLatestMessageIdTo(request, cfg, recipient);
+  if (id === null) return null;
+  return extractUnlockLink(await getMessageBody(request, cfg, id));
 }

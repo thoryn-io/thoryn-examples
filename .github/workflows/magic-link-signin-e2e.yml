@@ -70,12 +70,9 @@ on:
         description: "Per-example sandbox recipe id to run (default: magic-link-signin)"
         required: false
         default: magic-link-signin
-  # SCAFFOLD (SSO-3047) — dispatch-ONLY until (a) a catalog release ships magic-link-signin and (b) the first
-  # live run confirms the FIRST-LIVE-CONFIRM seams in the spec (the magic-link request path + the
-  # sandbox test-inbox capture of the single-use link, and the consume → RP resume). Enable the nightly below once it's green, like
-  # sandbox-e2e / branded-signin.
-  #   schedule:
-  #     - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  # SSO-3047 — nightly enabled after the first green live run confirmed the magic-link journey on staging.
+  schedule:
+    - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC

@@ -40,6 +40,7 @@
 import { test, expect, type Page, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
 import { findVerificationLink, findResetLink, findUnlockLink } from "../../../e2e/lib/mailbox";
+import { userAdminConfigured, loginForUserAdmin, suspendUserByEmail, listUsersDiagnostic } from "../../../e2e/lib/user-admin.mjs";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -458,6 +459,89 @@ test.describe("simple-signin example — self-service sign-up → verify email �
             unknownError,
             "an unknown email yields the byte-identical error a wrong password does — the SSO-1895 no-enumeration invariant",
           ).toBe(knownError);
+        });
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  // SSO-3082: BLOCKED (test.fixme) — the `thoryn users` CLI surface (SSO-3081) is shipped + released
+  // (cli-v0.10.1) and the wiring below is complete, but the suspend can't yet find the freshly-registered
+  // user: product-api's `GET /api/v1/users` returns an empty 200 for the production client-credentials CI
+  // session even though the user exists in identity with the matching tenant='examples' / env='production'
+  // (verified against staging DBs). That is a product-side resolution issue tracked in SSO-3082; un-fixme
+  // this test once it lands. The assertion body is kept intact so it validates immediately on the fix.
+  test.fixme(
+    "negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081)",
+    async ({ browser, request }) => {
+      test.setTimeout(180_000);
+      // Needs the `thoryn users suspend` surface (SSO-3081) wired via the CLI env (CI only). Locally,
+      // where the CLI jar / API key aren't configured, this negative case is skipped — the rest of the
+      // suite is unaffected.
+      test.skip(
+        !userAdminConfigured(config),
+        "suspended-login case needs THORYN_JAR + THORYN_API_KEY + THORYN_ISSUER + THORYN_WORKSPACE_SLUG (CI only)",
+      );
+      const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page = await context.newPage();
+      const email = uniqueEmail();
+      try {
+        await registerAndVerify(page, request, email);
+
+        let genericError = "";
+        await test.step("Baseline: a WRONG password on the (still active) account shows the generic invalid error", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await submitLoginWith(page, email, "definitely-the-wrong-password");
+          await expect(page.locator("#loginError")).toBeVisible();
+          genericError = (await page.locator("#loginError").innerText()).trim();
+          expect(genericError.length).toBeGreaterThan(0);
+        });
+
+        await test.step("Suspend the user through the supported `thoryn users suspend` surface", async () => {
+          const tokenFile = await loginForUserAdmin(config);
+          // The self-service user is only just mirrored into the product-api directory, so the
+          // email→id lookup can lag: retry ONLY that ("no user with email"). Any other failure
+          // (a scope 403, a confirm 422, …) is surfaced immediately with the CLI's stderr.
+          let lastError: unknown = null;
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            try {
+              await suspendUserByEmail(config, tokenFile, email);
+              lastError = null;
+              break;
+            } catch (e) {
+              lastError = e;
+              if (!/no user with email/i.test(String((e as Error).message))) throw e;
+              await new Promise((r) => setTimeout(r, 3000));
+            }
+          }
+          if (lastError) {
+            const dump = await listUsersDiagnostic(config, tokenFile);
+            throw new Error(`${(lastError as Error).message}\n[diagnostic] thoryn users list →\n${dump}`);
+          }
+        });
+
+        await test.step("The suspended account's sign-in shows the DISTINCT suspended notice", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          // The CORRECT password: the account-status check fires BEFORE the credential check, so the
+          // rejection is the suspension — not a bad password.
+          await submitLogin(page, email);
+          await expect(
+            page.locator("#loginError"),
+            "a suspended account is refused at sign-in",
+          ).toBeVisible();
+          await expect(page.getByText(/you are signed in as/i)).toHaveCount(0);
+          const suspendedError = (await page.locator("#loginError").innerText()).trim();
+          expect(
+            suspendedError,
+            "the suspended notice is DISTINCT from the generic invalid-credentials error (SSO-63)",
+          ).not.toBe(genericError);
+          expect(
+            suspendedError.toLowerCase(),
+            "the suspended notice names the suspension",
+          ).toContain("suspend");
         });
       } finally {
         await context.close();

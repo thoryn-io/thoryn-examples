@@ -316,6 +316,15 @@ jobs:
           # The harness reads the captured mail from the in-job Mailpit's LOCAL API —
           # no tunnel, no auth. (config.ts already defaults to this; set explicitly.)
           MAILPIT_BASE_URL: http://localhost:8025
+          # SSO-3081 — the suspended-login negative case drives `thoryn users suspend` through the CLI:
+          # the prebuilt jar, the client-credentials API key (a FRESH isolated session requesting only
+          # tenant:users.{write,read} — so this case is self-contained), the standing workspace slug
+          # (the production-plane --confirm value), and the gateway. The CI key MUST be granted
+          # tenant:users.write + tenant:users.read (see e2e/README.md); absent config → the case skips.
+          THORYN_JAR: ${{ github.workspace }}/thoryn.jar
+          THORYN_API_KEY: ${{ secrets.THORYN_API_KEY }}
+          THORYN_WORKSPACE_SLUG: ${{ env.STANDING_WORKSPACE_SLUG }}
+          THORYN_GATEWAY: ${{ env.THORYN_GATEWAY }}
           CI: "true"
         run: |
           set -euo pipefail

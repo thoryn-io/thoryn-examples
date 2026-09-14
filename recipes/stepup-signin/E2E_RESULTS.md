@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
-**Generated:** 2026-09-14T02:24:46.134Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
+**Generated:** 2026-09-14T02:30:31.950Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -24,36 +24,25 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 | 2 | Sensitive action (OIDC prompt=login) RE-CHALLENGES the active session at the hosted login form | ✅ passed |
 | 3 | Re-authenticate → the sensitive action completes on the RP protected page (fresh auth_time) | ✅ passed |
 
-**Error path also covered:** A plain re-authorize (no prompt=login) rides the active session silently — no re-challenge
+**Error path also covered:** A wrong password at the step-up re-authentication is rejected — the sensitive action does not complete
 
 ## Tests
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 11.8s |
-| contrast: a plain re-authorize (no prompt=login) rides the active session silently | ❌ failed | 37.8s |
-
-## Diagnostics
-
-```
-[contrast: a plain re-authorize (no prompt=login) rides the active session silently] Error: a plain re-authorize reuses the session with no password prompt
-
-[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
-
-Locator: getByText(/you are signed in as/i)
-Expected: visible
-```
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 12.5s |
+| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 8.6s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/stepup-signin-34798992699-1 |
+| Issuer | examples.hub.stg.thoryn.org/stepup-signin-34799349999-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34798992699)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34799349999)
 - [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

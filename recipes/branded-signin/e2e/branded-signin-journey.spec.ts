@@ -44,9 +44,9 @@
  * │  • a sandbox sign-up's verification email is captured to the per-env test-inbox. │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { findVerificationLinkViaInbox } from "../../../e2e/lib/test-inbox.mjs";
+import { findVerificationLinkViaInbox, findResetLinkViaInbox } from "../../../e2e/lib/test-inbox.mjs";
 import { STEPS } from "./scenario.mjs";
 
 /** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
@@ -78,8 +78,13 @@ async function submitRegistration(page: Page, email: string): Promise<void> {
 
 /** Fill + submit the hosted login form (identity login.html #passwordForm). */
 async function submitLogin(page: Page, email: string): Promise<void> {
+  await submitLoginWith(page, email, config.password);
+}
+
+/** Fill + submit the hosted login form with an EXPLICIT password (SSO-3079: after a reset it changed). */
+async function submitLoginWith(page: Page, email: string, password: string): Promise<void> {
   await page.locator("#passwordEmail").fill(email);
-  await page.locator("#password").fill(config.password);
+  await page.locator("#password").fill(password);
   await page.locator("#passwordForm button[type=submit]").click();
 }
 
@@ -94,6 +99,8 @@ test.describe("branded-signin example — fresh sandbox env with a BRANDED hoste
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage();
     const email = uniqueEmail();
+    // SSO-3079: the reset legs run in a second, session-less context so the sandbox login FORM renders.
+    let context2: BrowserContext | null = null;
 
     try {
       // 0+1) The RP points at the SANDBOX per-env issuer, then → hosted login.
@@ -245,7 +252,76 @@ test.describe("branded-signin example — fresh sandbox env with a BRANDED hoste
           });
         }
       });
+
+      // 6) SSO-3079 — self-service PASSWORD RESET in the SANDBOX. A fresh, session-less context so the
+      //    sandbox login form (and its "Forgot your password?" link) renders; reaching it via the RP
+      //    stamps the sandbox login environment on the session (LoginController), which the reset flow
+      //    reads server-side so the SANDBOX user is resolved and the email is captured to THIS sandbox.
+      context2 = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page2 = await context2.newPage();
+      const newPassword = `Reset-${Date.now()}-Pw2!`;
+
+      await test.step(STEPS.forgotSandbox, async () => {
+        await startSignInFromRp(page2);
+        await expect(page2.locator("#passwordForm")).toBeVisible();
+        await page2.locator("#forgotPasswordLink").click();
+        await expect(
+          page2.locator("input[name=email]"),
+          "the login's forgot-password link reaches identity's /password-reset/initiate form",
+        ).toBeVisible();
+        await page2.locator("input[name=email]").fill(email);
+        await page2.locator("button[type=submit]").click();
+        await expect(
+          page2.getByText(/you will receive a password reset link/i),
+          "the reset request returns the constant-time, non-enumerating confirmation",
+        ).toBeVisible();
+      });
+
+      let resetLink: string | null = null;
+      await test.step(STEPS.captureReset, async () => {
+        await expect
+          .poll(
+            async () => {
+              resetLink = await findResetLinkViaInbox(config.cli, email);
+              return resetLink;
+            },
+            {
+              message: `password-reset email to ${email} captured from the sandbox test-inbox (env ${config.cli.envSlug})`,
+              timeout: 90_000,
+              intervals: [1000, 2000, 3000, 5000],
+            },
+          )
+          .not.toBeNull();
+        expect(resetLink!, "reset link points at identity's password-reset page").toContain("/password-reset?token=");
+      });
+
+      await test.step(STEPS.resetSandbox, async () => {
+        await page2.goto(resetLink!, { waitUntil: "domcontentloaded" });
+        await expect(
+          page2.locator("input[name=newPassword]"),
+          "the captured reset link opens the set-new-password form",
+        ).toBeVisible();
+        await page2.locator("input[name=newPassword]").fill(newPassword);
+        await page2.locator("input[name=confirmPassword]").fill(newPassword);
+        await page2.locator("button[type=submit]").click();
+        await expect(
+          page2.getByText(/your password has been updated/i),
+          "setting the new password succeeds and the single-use token is consumed",
+        ).toBeVisible();
+      });
+
+      await test.step(STEPS.signinNewSandbox, async () => {
+        await startSignInFromRp(page2);
+        await expect(page2.locator("#passwordForm")).toBeVisible();
+        await submitLoginWith(page2, email, newPassword);
+        await expect(
+          page2.getByText(/you are signed in as/i),
+          "the SANDBOX account signs in with the NEW password and reaches the RP protected page",
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(page2.getByText(email, { exact: false }).first()).toBeVisible();
+      });
     } finally {
+      if (context2) await context2.close();
       await context.close();
     }
   });

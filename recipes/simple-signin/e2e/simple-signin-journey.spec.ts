@@ -37,7 +37,7 @@
  * │ (register.html #registerForm / login.html #passwordForm).                      │
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
-import { test, expect, type Page, type BrowserContext } from "@playwright/test";
+import { test, expect, type Page, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
 import { findVerificationLink, findResetLink, findUnlockLink } from "../../../e2e/lib/mailbox";
 import { STEPS } from "./scenario.mjs";
@@ -85,6 +85,27 @@ async function submitLoginWith(page: Page, email: string, password: string): Pro
   await page.locator("#passwordEmail").fill(email);
   await page.locator("#password").fill(password);
   await page.locator("#passwordForm button[type=submit]").click();
+}
+
+/** Register a brand-new end user and verify their email via the captured Mailpit link. */
+async function registerAndVerify(page: Page, request: APIRequestContext, email: string): Promise<void> {
+  await startSignInFromRp(page);
+  await expect(page.locator("#passwordForm")).toBeVisible();
+  await gotoRegisterFromLogin(page);
+  await submitRegistration(page, email);
+  await expect(page.getByRole("heading", { name: /check your email/i })).toBeVisible();
+  let verifyLink: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        verifyLink = await findVerificationLink(request, config.mailpit, email);
+        return verifyLink;
+      },
+      { timeout: 90_000, intervals: [1000, 2000, 3000, 5000] },
+    )
+    .not.toBeNull();
+  await page.goto(verifyLink!, { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /your email is verified/i })).toBeVisible();
 }
 
 test.describe("simple-signin example — self-service sign-up → verify email → sign in via the loopback RP (SSO-2909)", () => {
@@ -350,6 +371,93 @@ test.describe("simple-signin example — self-service sign-up → verify email �
             "the unlocked account signs in with the original password and reaches the RP protected page",
           ).toBeVisible({ timeout: 30_000 });
           await expect(page.getByText(email, { exact: false }).first()).toBeVisible();
+        });
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  test(
+    "sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080)",
+    async ({ browser, request }) => {
+      test.setTimeout(180_000);
+      const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page = await context.newPage();
+      const email = uniqueEmail();
+      try {
+        await registerAndVerify(page, request, email);
+
+        await test.step("Sign in → land on the RP protected page", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await submitLogin(page, email);
+          await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
+        });
+
+        await test.step("Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home", async () => {
+          // The RP's GET /logout clears its own cookie and 302s to the hub end_session_endpoint with
+          // id_token_hint + post_logout_redirect_uri=http://127.0.0.1:<port>/. The client registered a
+          // PORT-LESS loopback post-logout URI, so this exercises SSO-3080: the hub matches it
+          // port-agnostically (RFC 8252 §7.3, mirroring the sign-in redirect_uri), ends the hub session
+          // that the id_token_hint proves, and redirects the browser to the RP's real ported listener.
+          // Landing on the RP home (its public "Sign in with Thoryn" affordance) — rather than a hub
+          // invalid_request page — is the end-to-end proof the round-trip completed.
+          //
+          // NOTE: whether a *subsequent* sign-in re-prompts is governed by the upstream identity SSO
+          // session lifetime, which RP-Initiated Logout at the hub does not terminate; that is a
+          // separate concern and deliberately not asserted here.
+          await page.getByRole("link", { name: /sign out/i }).click();
+          await expect(
+            page.getByRole("link", { name: /sign in with thoryn/i }),
+            "after RP-Initiated Logout the browser lands back on the RP home (post_logout_redirect_uri honoured)",
+          ).toBeVisible({ timeout: 30_000 });
+          await expect(
+            page.getByText(/you are signed in as/i),
+            "the RP no longer renders the signed-in view",
+          ).toHaveCount(0);
+        });
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  test(
+    "negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895)",
+    async ({ browser, request }) => {
+      test.setTimeout(180_000);
+      const context = await browser.newContext({ ignoreHTTPSErrors: true });
+      const page = await context.newPage();
+      const knownEmail = uniqueEmail();
+      const unknownEmail = uniqueEmail(); // never registered
+      try {
+        await registerAndVerify(page, request, knownEmail);
+
+        let knownError = "";
+        await test.step("A WRONG password on a registered account shows the neutral 'invalid' error", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await submitLoginWith(page, knownEmail, "definitely-the-wrong-password");
+          await expect(
+            page.locator("#loginError"),
+            "a rejected credential shows the login error banner and never reaches /protected",
+          ).toBeVisible();
+          await expect(page.getByText(/you are signed in as/i)).toHaveCount(0);
+          knownError = (await page.locator("#loginError").innerText()).trim();
+          expect(knownError.length, "the error banner carries copy").toBeGreaterThan(0);
+        });
+
+        await test.step("An UNKNOWN email shows the IDENTICAL error — no user-existence oracle", async () => {
+          await startSignInFromRp(page);
+          await expect(page.locator("#passwordForm")).toBeVisible();
+          await submitLoginWith(page, unknownEmail, "any-password-at-all");
+          await expect(page.locator("#loginError")).toBeVisible();
+          const unknownError = (await page.locator("#loginError").innerText()).trim();
+          expect(
+            unknownError,
+            "an unknown email yields the byte-identical error a wrong password does — the SSO-1895 no-enumeration invariant",
+          ).toBe(knownError);
         });
       } finally {
         await context.close();

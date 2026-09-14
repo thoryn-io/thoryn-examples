@@ -158,3 +158,56 @@ export async function findMagicLinkViaInbox(cfg, recipient) {
   const m = body.match(/https?:\/\/[^\s"'<>]+\/auth\/magic-link\/consume\?token=[^\s"'<>]+/);
   return m ? m[0] : null;
 }
+
+/**
+ * SSO-2595 — sibling of [findMagicLinkViaInbox] for the passwordless MAGIC-CODE (6-digit email OTP)
+ * flow. In a sandbox the magic-code email is suppressed from real SMTP (identity `TestModeEmailGate`,
+ * channel `magic_code`) and captured into the per-env test inbox (SSO-3074, mirroring magic-link). We
+ * read it back through `thoryn env test-emails` and extract the 6-digit code from the rendered body
+ * (there is no link — the code is the payload), or null if it hasn't been captured yet — wrap in
+ * Playwright's `expect.poll`, exactly like the magic-link capture.
+ *
+ * @param {TestInboxConfig} cfg
+ * @param {string} recipient
+ * @returns {Promise<string | null>}
+ */
+export async function findMagicCodeViaInbox(cfg, recipient) {
+  if (!cfg.jarPath || !cfg.envSlug) {
+    throw new Error(
+      "test-inbox capture needs THORYN_JAR + SANDBOX_ENV_SLUG (the magic-code journey runs the CLI against the per-run sandbox)",
+    );
+  }
+  const list = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "list",
+    "--env", cfg.envSlug,
+    "--to", recipient,
+    "--channel", "magic_code",
+    "--limit", "50",
+    "--output", "json",
+  ]);
+  const emails = emailsOf(list);
+  if (emails.length === 0) return null;
+
+  // Newest-first (created_at DESC); element 0 is the most recently requested code. The code is in the
+  // body (no actionLink), so fetch the single record and extract the 6-digit value.
+  const id = emails[0]?.id;
+  if (!id) return null;
+  const rec = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "get", String(id), "--env", cfg.envSlug, "--output", "json",
+  ]);
+  return extractMagicCode(`${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`);
+}
+
+/**
+ * Extract a 6-digit magic-code from an email body. The template renders it in `<span class="code">`;
+ * we take the first standalone 6-digit run (word-boundaried so a longer number isn't mis-matched).
+ * @param {string} body
+ * @returns {string | null}
+ */
+export function extractMagicCode(body) {
+  // Prefer the span.code payload when present, else the first standalone 6-digit run.
+  const span = body.match(/class=["']code["'][^>]*>\s*(\d{6})\s*</i);
+  if (span) return span[1];
+  const m = body.match(/(?<!\d)(\d{6})(?!\d)/);
+  return m ? m[1] : null;
+}

@@ -82,6 +82,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "magic-code-signin",
+      testDir: "../recipes/magic-code-signin/e2e",
+      retries: 0,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "magic-link-signin",
       testDir: "../recipes/magic-link-signin/e2e",
       // retries:0 — magic-link request is rate-limited to 3 sends/email/hour (MagicLinkRateLimiter).

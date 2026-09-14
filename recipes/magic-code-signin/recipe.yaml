@@ -1,0 +1,94 @@
+# SSO-2595 (epic SSO-3042) — `magic-code-signin`: PASSWORDLESS sign-in with a 6-digit email OTP.
+# Same per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able
+# user), but the browser journey signs in with NO password: it requests a single-use 6-digit code,
+# captures that email from the sandbox test-inbox (SSO-3074), types the code back on the hosted login,
+# and the OAuth flow resumes to the RP.
+#
+# Why the recipe is just env + app + user: magic-code is OPT-IN (NOT in the default method set), so the
+# e2e journey ENABLES it for the sandbox with `thoryn login-methods set --environment <slug>
+# --method password --method magic_link --method magic_code` (SSO-3075) before signing in — a
+# supported CLI action, not a raw API call. Enforcement is per-environment (SSO-3073), so the sandbox
+# login page offers magic-code without touching production. Provisioning stays env + app + user.
+#
+# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
+# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
+# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user).
+apiVersion: thoryn.io/examples/v1
+id: magic-code-signin
+version: 1.0.0
+summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, enable magic-code for the sandbox, then sign in PASSWORDLESS by typing a single-use 6-digit email code; then hard-delete the sandbox.
+
+requires:
+  scopes:
+    # env.create / env.delete (write), applications.create (write) + the applications.get verify (read),
+    # identity.registerUser (users.write). tenant:idp.write lets the journey enable magic-code for the
+    # sandbox via `thoryn login-methods set` (SSO-3075); requesting/verifying the code is an unauthenticated
+    # hosted-login action the browser performs.
+    - tenant:environments.write
+    - tenant:applications.write
+    - tenant:applications.read
+    - tenant:users.write
+    - tenant:idp.write
+  # cli-v0.9.0 adds `thoryn login-methods` (SSO-3075) which the journey uses to enable magic-code for
+  # the sandbox; the recipe steps themselves are the sandbox-signin baseline.
+  minCliVersion: 0.9.0
+
+params:
+  - name: workspaceSlug
+    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
+    default: "magic-code-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envName
+    prompt: "Display name for the ephemeral sandbox environment"
+    default: "Magic-code Sign-in"
+  - name: appName
+    prompt: "Display name for the ephemeral OAuth client"
+    default: "Magic-code Sign-in App {{generate.slug8}}"
+
+steps:
+  - id: env
+    action: env.create
+    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
+    with:
+      slug: "{{envSlug}}"
+      name: "{{envName}}"
+
+  - id: app
+    action: applications.create
+    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    with:
+      displayName: "{{appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - id: user
+    action: identity.registerUser
+    description: Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly via a 6-digit email code.
+    with:
+      email: "{{envSlug}}@example.com"
+      # A published example credential — the user can also sign in with a password, but this example
+      # proves the PASSWORDLESS magic-code path. Rotate before any real use.
+      password: "Example-Signin-Pw1!"
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+verify:
+  - assert: applications.get
+    id: "{{app.clientId}}"
+    expect:
+      status: active
+
+# Teardown (child-first): delete the app, then hard-delete the sandbox it lives in. The hard-delete
+# cascades the client + the user — nothing outlives the environment.
+teardown:
+  - action: applications.delete
+    id: "{{app.clientId}}"
+  - action: env.delete
+    id: "{{env.id}}"

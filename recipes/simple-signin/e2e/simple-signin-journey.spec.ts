@@ -543,6 +543,76 @@ test.describe("simple-signin example — self-service sign-up → verify email �
     },
   );
 
+  test(
+    "session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083)",
+    async ({ browser, request }) => {
+      test.setTimeout(180_000);
+      // Two devices (browser contexts) sign in as the SAME user. Session management is a BEARER
+      // app-integration API (identity /api/v1/me/sessions, no hosted UI): the app's backend calls it
+      // with the user's access token. The loopback RP exposes that as GET /sessions + POST
+      // /sessions/revoke?id=… (SSO-3083). We assert device A can list both devices' sessions and sign
+      // device B out — B's session disappears from the account. Complements the RP-Initiated Logout
+      // test (which ends the CURRENT session); this ends ANOTHER device's.
+      const ctxA = await browser.newContext({ ignoreHTTPSErrors: true });
+      const ctxB = await browser.newContext({ ignoreHTTPSErrors: true });
+      const pageA = await ctxA.newPage();
+      const pageB = await ctxB.newPage();
+      const email = uniqueEmail();
+
+      // GET the RP's session proxy from a page already on the RP origin (its `sid` cookie rides along;
+      // the RP swaps it for the user's bearer server-side). Returns the raw identity session array.
+      const listSessions = (page: Page) =>
+        page.evaluate(async () => {
+          const res = await fetch("/sessions", { headers: { Accept: "application/json" } });
+          const body = await res.json().catch(() => null);
+          return { status: res.status, list: Array.isArray(body) ? (body as Array<{ id: string; currentDevice: boolean }>) : [] };
+        });
+
+      try {
+        await registerAndVerify(pageA, request, email);
+
+        await test.step("Both devices sign in and register their session with the CIAM (via the RP /sessions proxy)", async () => {
+          for (const page of [pageA, pageB]) {
+            await startSignInFromRp(page);
+            await expect(page.locator("#passwordForm")).toBeVisible();
+            await submitLogin(page, email);
+            await expect(page.getByText(/you are signed in as/i)).toBeVisible({ timeout: 30_000 });
+            // First call records this device's session on the bearer chain (UserSessionTrackingFilter).
+            const seen = await listSessions(page);
+            expect(seen.status, "the app can read the user's sessions with its access token").toBe(200);
+          }
+        });
+
+        let otherSessionId = "";
+        await test.step("Device A sees BOTH sessions — exactly one is its own (current) device", async () => {
+          const seen = await listSessions(pageA);
+          expect(seen.status).toBe(200);
+          expect(seen.list.length, "both devices' sessions are listed").toBeGreaterThanOrEqual(2);
+          expect(seen.list.filter((s) => s.currentDevice).length, "exactly one entry is device A itself").toBe(1);
+          otherSessionId = seen.list.find((s) => !s.currentDevice)?.id ?? "";
+          expect(otherSessionId, "device B's session id is resolvable").toBeTruthy();
+        });
+
+        await test.step("Device A signs device B out, and B's session disappears from the account", async () => {
+          const revoke = await pageA.evaluate(async (id) => {
+            const res = await fetch(`/sessions/revoke?id=${encodeURIComponent(id)}`, { method: "POST" });
+            return res.status;
+          }, otherSessionId);
+          expect(revoke < 300, `revoking another device's session should 2xx (got ${revoke})`).toBeTruthy();
+
+          // The revoked row is gone — device A now sees only its own session.
+          const after = await listSessions(pageA);
+          expect(after.status).toBe(200);
+          expect(after.list.some((s) => s.id === otherSessionId), "the signed-out device is no longer listed").toBe(false);
+          expect(after.list.filter((s) => s.currentDevice).length, "device A's own session survives").toBe(1);
+        });
+      } finally {
+        await ctxA.close();
+        await ctxB.close();
+      }
+    },
+  );
+
   test("error path: a garbage verify-email token shows the neutral invalid screen", async ({
     browser,
   }) => {

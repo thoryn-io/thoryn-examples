@@ -100,6 +100,14 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "stepup-signin",
+      testDir: "../recipes/stepup-signin/e2e",
+      // retries:0 — one per-run user + session; a retry would re-enter an already-authenticated
+      // browser context and the "sensitive action re-challenges" step could see a stale state.
+      retries: 0,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "passkey-signin",
       testDir: "../recipes/passkey-signin/e2e",
       // retries:0 — ONE per-run user + ONE CDP virtual authenticator per test; the full journey enrols

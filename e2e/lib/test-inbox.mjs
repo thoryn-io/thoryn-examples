@@ -52,6 +52,8 @@ function emailsOf(listJson) {
 }
 
 const isVerifyLink = (s) => typeof s === "string" && /\/verify-email\?token=/.test(s);
+// SSO-3079: the sandbox-captured password-reset link (PasswordResetService resetPath=/password-reset).
+const isResetLink = (s) => typeof s === "string" && /\/password-reset\?token=/.test(s);
 
 /**
  * One-shot: find the newest email-verification message to [recipient] in the sandbox's
@@ -210,4 +212,40 @@ export function extractMagicCode(body) {
   if (span) return span[1];
   const m = body.match(/(?<!\d)(\d{6})(?!\d)/);
   return m ? m[1] : null;
+}
+
+/**
+ * SSO-3079 — poll a sandbox's test inbox for the newest PASSWORD-RESET email to [recipient] and return
+ * its reset link (the captured `actionLink`, `<base>/password-reset?token=...`), or null if it hasn't
+ * been captured yet. Wrap in `expect.poll`. Same CLI path as findVerificationLinkViaInbox; only the
+ * channel (`password_reset`) and the link shape differ. A sandbox suppresses the real SMTP send and
+ * captures the reset link here (SSO-3074-style), so this is a genuine, non-faked capture of the email.
+ */
+export async function findResetLinkViaInbox(cfg, recipient) {
+  if (!cfg.jarPath || !cfg.envSlug) {
+    throw new Error(
+      "test-inbox capture needs THORYN_JAR + SANDBOX_ENV_SLUG (the sandbox journey runs the CLI against the per-run sandbox)",
+    );
+  }
+  const list = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "list",
+    "--env", cfg.envSlug,
+    "--to", recipient,
+    "--channel", "password_reset",
+    "--limit", "50",
+    "--output", "json",
+  ]);
+  const emails = emailsOf(list);
+  if (emails.length === 0) return null;
+  const newest = emails[0];
+  if (isResetLink(newest?.actionLink)) return newest.actionLink;
+  const id = newest?.id;
+  if (!id) return null;
+  const rec = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "get", String(id), "--env", cfg.envSlug, "--output", "json",
+  ]);
+  if (isResetLink(rec?.actionLink)) return rec.actionLink;
+  const body = `${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`;
+  const m = body.match(/https?:\/\/[^\s"'<>]+\/password-reset\?token=[A-Za-z0-9_-]+/);
+  return m ? m[0] : null;
 }

@@ -12,6 +12,10 @@ export const STEPS = {
   register: "Follow the self-service sign-up path and register a brand-new end user in the sandbox",
   capture: "Capture the REAL verification email from the sandbox test-inbox (thoryn env test-emails)",
   verify: "Follow the captured verify-email link → “Your email is verified”",
+  forgotSandbox: "Forgot password (sandbox): follow “Forgot your password?” → request a reset in the sandbox",
+  captureReset: "Capture the REAL password-reset email from the sandbox test-inbox (channel password_reset)",
+  resetSandbox: "Follow the captured reset link → set a NEW password → “password updated”",
+  signinNewSandbox: "Sign in with the NEW password against the sandbox issuer → /protected",
   signin:
     "Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox",
 };
@@ -38,6 +42,10 @@ export const scenario = {
     { key: "capture", title: STEPS.capture },
     { key: "verify", title: STEPS.verify },
     { key: "signin", title: STEPS.signin },
+    { key: "forgotSandbox", title: STEPS.forgotSandbox },
+    { key: "captureReset", title: STEPS.captureReset },
+    { key: "resetSandbox", title: STEPS.resetSandbox },
+    { key: "signinNewSandbox", title: STEPS.signinNewSandbox },
   ],
   errorPath: {
     title: "A garbage verify-email token shows the neutral “this link is invalid” screen",

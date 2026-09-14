@@ -494,22 +494,23 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         });
 
         await test.step("Suspend the user through the supported `thoryn users suspend` surface", async () => {
-          const home = await loginForUserAdmin(config);
+          const tokenFile = await loginForUserAdmin(config);
           // The self-service user is only just mirrored into the product-api directory, so the
-          // email→id lookup can lag; poll the suspend until it succeeds.
-          await expect
-            .poll(
-              async () => {
-                try {
-                  await suspendUserByEmail(config, home, email);
-                  return true;
-                } catch {
-                  return false;
-                }
-              },
-              { timeout: 60_000, intervals: [1000, 2000, 3000, 5000] },
-            )
-            .toBe(true);
+          // email→id lookup can lag: retry ONLY that ("no user with email"). Any other failure
+          // (a scope 403, a confirm 422, …) is surfaced immediately with the CLI's stderr.
+          let lastError: unknown = null;
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            try {
+              await suspendUserByEmail(config, tokenFile, email);
+              lastError = null;
+              break;
+            } catch (e) {
+              lastError = e;
+              if (!/no user with email/i.test(String((e as Error).message))) throw e;
+              await new Promise((r) => setTimeout(r, 3000));
+            }
+          }
+          if (lastError) throw lastError;
         });
 
         await test.step("The suspended account's sign-in shows the DISTINCT suspended notice", async () => {

@@ -5,9 +5,10 @@
  *
  * A fresh self-service user is registered in-browser by the spec; to suspend it we shell out to the
  * SAME `thoryn.jar` the workflow uses, but authenticate a SEPARATE client-credentials session into an
- * ISOLATED token store (its own HOME) requesting only `tenant:users.{write,read}`. That isolation
- * means: (a) a missing scope grant on the CI key fails only this one test, not the whole suite, and
- * (b) the provisioning session the teardown step reuses is never clobbered. The suspend is
+ * ISOLATED token file (THORYN_TOKEN_FILE — the CLI's own path-override seam, robust where the
+ * runner's `user.home` doesn't track $HOME) requesting only `tenant:users.{write,read}`. That
+ * isolation means: (a) a missing scope grant on the CI key fails only this one test, not the suite,
+ * and (b) the provisioning session the teardown step reuses is never clobbered. The suspend is
  * confirmation-gated on the production plane, so `--confirm <workspace-slug>` rides along.
  */
 import { execFile } from "node:child_process";
@@ -24,38 +25,44 @@ export function userAdminConfigured(cfg) {
   return Boolean(c && c.jarPath && c.apiKey && c.issuer && c.workspaceSlug && c.gateway);
 }
 
+function isolatedEnv(tokenFile, extra = {}) {
+  return { ...process.env, THORYN_TOKEN_FILE: tokenFile, THORYN_CI_PLAINTEXT_TOKENS: "1", ...extra };
+}
+
+/** Run the CLI; on a non-zero exit throw an Error carrying the CLI's stderr/stdout so failures are visible. */
+async function runCli(cfg, env, args) {
+  try {
+    return await execFileP("java", ["-jar", cfg.cli.jarPath, ...args], { env, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  } catch (e) {
+    const detail = [e.stderr, e.stdout].map((s) => (s || "").toString().trim()).filter(Boolean).join(" | ");
+    throw new Error(`\`thoryn ${args.join(" ")}\` failed (exit ${e.code ?? "?"}): ${detail || e.message}`);
+  }
+}
+
 /**
- * Authenticate a client-credentials session for user administration into an ISOLATED token store,
- * returning the HOME dir that store lives under (passed back into [suspendUserByEmail]). Requests
- * only the two user scopes so it never widens the CI key's effective grant beyond what this case needs.
+ * Authenticate a client-credentials session for user administration into an ISOLATED token file,
+ * returning that file's path (passed back into [suspendUserByEmail]). Requests only the two user
+ * scopes so it never widens the CI key's effective grant beyond what this case needs. Throws with the
+ * CLI's stderr if the key is not granted those scopes (e.g. `invalid_scope`).
  */
 export async function loginForUserAdmin(cfg) {
-  const home = mkdtempSync(join(tmpdir(), "thoryn-useradmin-"));
-  await execFileP(
-    "java",
-    [
-      "-jar", cfg.cli.jarPath, "login", "--client-credentials",
-      "--issuer", cfg.cli.issuer, "--gateway", cfg.cli.gateway,
-      "--scope", "tenant:users.write tenant:users.read",
-    ],
-    { env: { ...process.env, HOME: home, THORYN_CI_PLAINTEXT_TOKENS: "1", THORYN_API_KEY: cfg.cli.apiKey }, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
-  );
-  return home;
+  const tokenFile = join(mkdtempSync(join(tmpdir(), "thoryn-useradmin-")), "tokens.json");
+  await runCli(cfg, isolatedEnv(tokenFile, { THORYN_API_KEY: cfg.cli.apiKey }), [
+    "login", "--client-credentials",
+    "--issuer", cfg.cli.issuer, "--gateway", cfg.cli.gateway,
+    "--scope", "tenant:users.write tenant:users.read",
+  ]);
+  return tokenFile;
 }
 
 /**
  * Suspend the user with [email] via `thoryn users suspend --email … --confirm <workspace-slug>`
- * (the CLI resolves the email to its id through the directory, then POSTs the suspend). Rejects on a
- * non-zero exit; the spec wraps it in `expect.poll` so a directory-projection lag (the freshly
- * self-service-registered user not yet mirrored to product-api) is retried rather than flaking.
+ * (the CLI resolves the email to its id through the directory, then POSTs the suspend). Throws with
+ * the CLI's stderr on failure; the spec retries ONLY the directory-projection lag (a freshly
+ * self-service-registered user not yet mirrored to product-api → "no user with email").
  */
-export async function suspendUserByEmail(cfg, home, email) {
-  await execFileP(
-    "java",
-    [
-      "-jar", cfg.cli.jarPath, "users", "suspend",
-      "--email", email, "--confirm", cfg.cli.workspaceSlug, "--gateway", cfg.cli.gateway,
-    ],
-    { env: { ...process.env, HOME: home, THORYN_CI_PLAINTEXT_TOKENS: "1" }, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
-  );
+export async function suspendUserByEmail(cfg, tokenFile, email) {
+  await runCli(cfg, isolatedEnv(tokenFile), [
+    "users", "suspend", "--email", email, "--confirm", cfg.cli.workspaceSlug, "--gateway", cfg.cli.gateway,
+  ]);
 }

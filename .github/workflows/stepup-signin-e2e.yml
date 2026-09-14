@@ -70,12 +70,10 @@ on:
         description: "Per-example sandbox recipe id to run (default: stepup-signin)"
         required: false
         default: stepup-signin
-  # SCAFFOLD (SSO-3044) — dispatch-ONLY until (a) a catalog release ships stepup-signin and (b) the first
-  # live run on staging confirms the FIRST-LIVE-CONFIRM seams in the spec (a prompt=login authorize
-  # re-challenges an active session; a plain re-authorize does not). Needs the SSO-3071 hub re-auth fix
-  # live on staging. Enable the nightly below once it's green, like sandbox-e2e / branded-signin.
-  #   schedule:
-  #     - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
+  # SSO-3044 — nightly enabled after the first green live run confirmed the prompt=login step-up
+  # re-challenge and the wrong-password rejection on staging.
+  schedule:
+    - cron: "45 5 * * *" # nightly, offset from conformance.yml (23 4) and example-e2e.yml (41 4)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only); no id-token — API-key flow needs no GitHub OIDC

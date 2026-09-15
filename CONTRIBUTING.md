@@ -13,6 +13,12 @@ This is the one hard rule; everything else is convention.
   that seeds a database, calls a demo/backdoor endpoint, or hardcodes state.
 - Secrets are **never** written into a recipe. Server-minted secrets are returned once and written to
   a file by the CLI; a recipe only references ids, never secret values.
+- **A recipe is what a CUSTOMER applies; test fixtures are not part of it (SSO-3087).** No test user
+  with a published password, no per-run sandbox, no CI-only SMTP sink in `recipe.yaml`. Those are the
+  scenario's fixtures and live in `recipes/<id>/e2e/provision.yaml` (a provisioning file, schema
+  `provision.schema.json` in thoryn-cli, closed `kind` allowlist, secrets only as env-var NAMES). The
+  recipe targets the environment `thoryn examples apply` resolves (`--environment <slug>`); it never
+  creates one.
 
 ## Adding a recipe
 
@@ -24,7 +30,9 @@ This is the one hard rule; everything else is convention.
    npx --yes ajv-cli@5 validate -s schema/recipe.schema.json -d "recipes/**/recipe.yaml" --spec=draft2020 -c ajv-formats
    ```
 5. (Optional, recommended for user-facing flows) add a **colocated** browser E2E under
-   `recipes/<id>/e2e/` — a `scenario.mjs` (declared steps) + a `*-journey.spec.ts` that
+   `recipes/<id>/e2e/` — a `provision.yaml` (the scenario's FIXTURES: a throwaway sandbox and,
+   if the journey needs one, a test user with `passwordEnv` or an email sink; converged by
+   `thoryn provision apply`, removed by `thoryn provision destroy` — SSO-3091), — a `scenario.mjs` (declared steps) + a `*-journey.spec.ts` that
    imports the shared harness from the repo-root [`e2e/`](e2e/) tree (config + Mailpit
    capture), and wire it as a project in [`e2e/playwright.config.ts`](e2e/playwright.config.ts).
    Seed its report with `npm run results:init`. See [`e2e/README.md`](e2e/README.md). Keep

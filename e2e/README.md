@@ -8,6 +8,23 @@ recipe **owns its spec**, colocated with the recipe it validates:
 | [`simple-signin`](../recipes/simple-signin/) | [`recipes/simple-signin/e2e/`](../recipes/simple-signin/e2e/) | `example-e2e.yml` | [`E2E_RESULTS.md`](../recipes/simple-signin/E2E_RESULTS.md) |
 | [`sandbox-signin`](../recipes/sandbox-signin/) | [`recipes/sandbox-signin/e2e/`](../recipes/sandbox-signin/e2e/) | `sandbox-e2e.yml` | [`E2E_RESULTS.md`](../recipes/sandbox-signin/E2E_RESULTS.md) |
 
+**Three files per scenario (SSO-3091, epic SSO-3087).** A scenario is the recipe, its fixtures,
+and its journey — kept apart on purpose so the recipe stays byte-identical to what a customer
+fetches from the signed catalog:
+
+| File | Role | Who runs it |
+|---|---|---|
+| `recipes/<id>/recipe.yaml` | the EXAMPLE — the configuration a customer applies (the app, a theme, a flow, …) | `thoryn examples apply <id> --environment <slug>` |
+| `recipes/<id>/e2e/provision.yaml` | the FIXTURES — a throwaway sandbox; a test user (`passwordEnv`) or an email sink only when the journey needs one | the provisioning Action from thoryn-cli: `thoryn provision apply` … `destroy` |
+| `recipes/<id>/e2e/*.spec.ts` | the JOURNEY — the browser walk through the real hosted screens + the recipe's RP | Playwright |
+
+The workflow order is: **provision Action** (sign in from `.thoryn/connection.json`, converge the
+fixture file) → **`examples apply <id> --environment <the provisioned sandbox>`** → **journey** →
+**`thoryn provision destroy`** in the workflow's own `if: always()` step (a composite Action's steps
+run together, so the destroy must be the workflow's, after the journey; the sandbox hard-delete
+cascades the client and the users the run created). `sandbox-e2e.yml` is the first scenario on this
+shape; the others move over one by one.
+
 The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
 there is no duplicated setup: the staging/Mailpit config + email capture (`lib/`), the one
 Playwright config with a project per recipe (`playwright.config.ts`), and the per-recipe

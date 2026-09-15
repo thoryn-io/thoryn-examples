@@ -48,8 +48,14 @@ export default defineConfig({
     // Writes recipes/<project>/E2E_RESULTS.md from the live run (per-recipe coverage report).
     ["./lib/e2e-results-reporter.mjs"],
   ],
-  timeout: 60_000,
-  expect: { timeout: 15_000 },
+  // SSO-3095 — these journeys run against the live STAGING SaaS, so every navigation is a real
+  // cross-network round-trip + server render. The hosted-registration "check your email" hand-off
+  // (a real POST /register + full-page render) intermittently took >15s under staging load, flaking
+  // the later tests in a run. Give assertions a leash consistent with the suite already allowing 90s
+  // for email delivery, and per-test headroom so a journey with several slow round-trips does not hit
+  // the cap. Fast runs are unaffected — an assertion resolves the moment its target is visible.
+  timeout: 120_000,
+  expect: { timeout: 30_000 },
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",

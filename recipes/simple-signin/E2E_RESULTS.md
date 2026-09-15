@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 6 passed · 0 failed · 0 skipped (of 6).
-**Generated:** 2026-09-15T04:49:25.712Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 5 passed · 2 failed · 0 skipped (of 7).
+**Generated:** 2026-09-15T13:05:18.569Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -36,11 +36,9 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 | 14 | Sign in with the correct password → land back on /protected | ✅ passed |
 | 15 | Sign in → land on the RP protected page | ✅ passed |
 | 16 | Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home | ✅ passed |
-| 17 | A WRONG password on a registered account shows the neutral 'invalid' error | ✅ passed |
-| 18 | An UNKNOWN email shows the IDENTICAL error — no user-existence oracle | ✅ passed |
-| 19 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
-| 20 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
-| 21 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
+| 17 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
+| 18 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
+| 19 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
 
@@ -48,12 +46,30 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 19.6s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 29.8s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 8.4s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 7.8s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 13.7s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 20.7s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 42.4s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.3s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ❌ failed | 32.6s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.1s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 32.7s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.6s |
+
+## Diagnostics
+
+```
+[negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895)] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByRole('heading', { name: /check your email/i })
+Expected: visible
+Received: <element(s) not found>
+Call log:
+[session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083)] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByRole('heading', { name: /check your email/i })
+Expected: visible
+Received: <element(s) not found>
+Call log:
+```
 
 ## Environment
 
@@ -66,6 +82,6 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34930150137)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34972259441)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

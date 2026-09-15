@@ -1,0 +1,31 @@
+# SSO-3091 (epic SSO-3087) — the FIXTURES of the `simple-signin` browser scenario, as provisioning-
+# as-code. Test scaffolding, NOT the example: the recipe a customer applies is `../recipe.yaml`.
+#
+# simple-signin demonstrates REAL email delivery on the workspace's production plane, so its one
+# fixture is the workspace's bring-your-own-SMTP sender pointed at the CI job's EPHEMERAL Mailpit
+# sink (a Docker container in the runner, reachable over a public TCP tunnel the workflow opens
+# before the provisioning Action runs — see `.github/workflows/example-e2e.yml`). No environment:
+# this lives on the PRODUCTION plane (a sandbox would suppress the email into its test-inbox
+# instead — that is the `sandbox-signin` scenario). No `user`: the journey registers its own end
+# user on the hosted self-service screens.
+#
+# Secrets never enter this file: the sink password is resolved from the env var `smtpPasswordEnv`
+# names at apply time and never recorded. The tunnel host/port are per run (`{{env.…}}`).
+#
+# Because this is a production-plane singleton, `thoryn provision destroy` needs
+# `--confirm <workspace-slug>` (the SSO-2413 gate) — the workflow passes it — and resets the
+# workspace to the platform sender (product-api DELETE /email-provider). A previous run that left the
+# sink configured is ADOPTED (converged to this run's tunnel, never deleted by destroy), so the
+# workflow additionally runs `thoryn workspace email-provider reset` as a belt-and-braces teardown.
+apiVersion: thoryn.io/provision/v1
+resources:
+  - kind: emailProvider
+    spec:
+      smtpHost: "{{env.SINK_SMTP_HOST}}"
+      smtpPort: "{{env.SINK_SMTP_PORT}}"
+      smtpUsername: ci
+      smtpPasswordEnv: SINK_SMTP_PASSWORD
+      transportSecurity: none
+      allowInsecureTransport: true
+      fromAddress: noreply@example.test
+      enabled: true

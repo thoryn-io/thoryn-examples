@@ -16,6 +16,12 @@ form. identity renders the fields as **CSS custom properties** (`--brand-primary
 theme enum, https logo URL) and enforces a **WCAG-AA contrast guard**. The branding is **per
 environment** — applied to this run's sandbox only, and torn down with it.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client + the login theme, applied
+> into the environment you select (`--environment <sandbox-slug>`). The throwaway sandbox the browser
+> scenario needs is a FIXTURE in [`e2e/provision.yaml`](e2e/provision.yaml); the journey registers its
+> own end user on the branded hosted screens. Steps about `env.create` / `identity.registerUser` below
+> describe v1.
+
 ## Run it
 
 Needs the `thoryn` CLI **≥ 0.5.0** (the release carrying the `tenant.configureLoginTheme` action). The

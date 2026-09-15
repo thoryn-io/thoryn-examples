@@ -22,9 +22,9 @@ The workflow order is: **provision Action** (sign in from `.thoryn/connection.js
 fixture file) → **`examples apply <id> --environment <the provisioned sandbox>`** → **journey** →
 **`thoryn provision destroy`** in the workflow's own `if: always()` step (a composite Action's steps
 run together, so the destroy must be the workflow's, after the journey; the sandbox hard-delete
-cascades the client and the users the run created). `sandbox-e2e.yml` and `example-e2e.yml`
-(simple-signin, whose fixture is the Mailpit sink as an `emailProvider` on the production plane) are on
-this shape; the others move over one by one.
+cascades the client and the users the run created). `sandbox-e2e.yml`, `example-e2e.yml`
+(simple-signin, whose fixture is the Mailpit sink as an `emailProvider` on the production plane) and
+`branded-signin-e2e.yml` are on this shape; the others move over one by one.
 
 The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
 there is no duplicated setup: the staging/Mailpit config + email capture (`lib/`), the one

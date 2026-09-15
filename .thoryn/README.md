@@ -28,9 +28,20 @@ customer plane — no DB seed, no shortcut:
 1. Sign in to the `examples` workspace interactively (browser OIDC):
    `thoryn login --issuer https://hub.stg.thoryn.org` then `thoryn workspace switch examples`.
 2. Mint a confidential `client_credentials` client granting exactly the scopes listed in
-   `connection.json` (the union every scenario's fixtures + recipe need):
-   `thoryn clients create --display-name "thoryn-examples CI" --client-type confidential --grant-types client_credentials --scopes "tenant:environments.write tenant:environments.read tenant:applications.write tenant:applications.read tenant:users.write tenant:users.read tenant:email.write tenant:email.read tenant:idp.write tenant:idp.read" --secret-file ci.secret`
-   (the secret is shown once, via the CLI's `SecretIo` channel — never stdout/argv).
+   `connection.json` (the union every scenario's fixtures + recipe need). Your own session must hold
+   every scope you delegate, so sign in with them (`thoryn login --issuer … --scope "openid offline_access tenant:…"`);
+   `--redirect-uri` is required by `clients create` even for a client-credentials client (never used):
+   ```bash
+   thoryn clients create --display-name "thoryn-examples CI" \
+     --client-type confidential --grant-type client_credentials --redirect-uri http://127.0.0.1/unused \
+     --scope tenant:environments.write --scope tenant:environments.read \
+     --scope tenant:applications.write --scope tenant:applications.read \
+     --scope tenant:users.write --scope tenant:users.read \
+     --scope tenant:email.write --scope tenant:email.read \
+     --scope tenant:idp.write --scope tenant:idp.read \
+     --secret-file ci.secret --output json
+   ```
+   (the secret lands only in `ci.secret`, via the CLI's `SecretIo` channel — never stdout/argv).
 3. **Paste the printed `clientId`** into `auth.clientId` (it ships as `REPLACE_AFTER_BOOTSTRAP`) and commit.
 4. **Set the GitHub Actions secret** `THORYN_EXAMPLES_CI_CLIENT_SECRET` to the contents of `ci.secret`,
    then `shred ci.secret`.

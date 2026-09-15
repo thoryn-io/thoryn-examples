@@ -1,19 +1,15 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
-  "id": "magic-link-cross-device-signin",
+  "id": "simple-signin",
   "version": "3.0.0",
-  "summary": "Register a public loopback OAuth client in an environment you own, then sign in PASSWORDLESS ACROSS TWO DEVICES \u2014 open the link on another device, redeem its continuation code on the initiating device.",
+  "summary": "Register a public loopback OAuth client in your workspace, then sign a user up (real verification email) and in through the recipe's relying party.",
   "provision": "./provision.yaml",
   "requires": {
     "scopes": [
-      "tenant:environments.write",
-      "tenant:environments.read",
       "tenant:applications.write",
       "tenant:applications.read",
       "tenant:users.write",
-      "tenant:users.read",
-      "tenant:idp.write",
-      "tenant:idp.read"
+      "tenant:users.read"
     ],
     "minCliVersion": "0.12.0"
   },
@@ -24,15 +20,14 @@
       "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     },
     {
-      "name": "envSlug",
-      "prompt": "Slug for the throwaway sandbox environment the provision file creates (fresh per run)",
-      "default": "magic-xdev-{{generate.slug8}}",
-      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+      "name": "demoEmail",
+      "prompt": "Email address of the demo user the provision file registers",
+      "default": "demo-{{generate.slug8}}@example.com"
     },
     {
       "name": "appName",
       "prompt": "Display name for the OAuth client",
-      "default": "Magic-link Cross-device App {{generate.slug8}}"
+      "default": "Sign-in Example App {{generate.slug8}}"
     },
     {
       "name": "DEMO_USER_PASSWORD",

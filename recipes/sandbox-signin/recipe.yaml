@@ -1,61 +1,47 @@
-# SSO-2969 (epic SSO-2959) — `sandbox-signin`: sign in through a loopback relying party INSIDE a
-# sandbox environment. SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example
-# configuration a customer applies — the loopback OAuth client — targeted at the environment the
-# guided `examples apply` resolves (a sandbox by default, SSO-2876) or the one `--environment` names.
-#
-# The fixtures the browser scenario needs (the throwaway sandbox itself) moved out of the recipe into
-# `e2e/provision.yaml`, converged by `thoryn provision apply` (SSO-3088). A customer running this
-# recipe gets exactly the client, in an environment they own — no per-run sandbox, no test user with
-# a published password, no teardown that hard-deletes an environment. The journey's end user is
-# registered through the hosted self-service screens.
-#
-# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): applications.create lands in the
-# selected environment (`--environment <slug>` → X-Thoryn-Environment); teardown deletes the client.
+# sandbox-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: sandbox-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in a sandbox environment you own, then sign in through the recipe's relying party.
+provision: ./provision.yaml
 
 requires:
   scopes:
-    # applications.create (write) + the applications.get verify (read). The sandbox itself is
-    # selected, not created — no environments scope needed.
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
-  # `--environment` targeting on apply (SSO-2876) + the fetched catalog (SSO-2968).
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the throwaway sandbox environment the provision file creates (fresh per run)"
+    default: "sbx-signin-{{generate.slug8}}"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Sandbox Sign-in App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected (sandbox) environment.
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-# Teardown removes what the recipe created: the client. The environment it lives in is the
-# customer's (or the scenario's fixture, removed by `thoryn provision destroy`), never touched here.
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

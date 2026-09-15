@@ -1,67 +1,47 @@
-# SSO-3044 (epic SSO-3042) — `stepup-signin`: the RFC 9470 / OIDC re-authentication example. Same
-# per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able user),
-# but the browser journey proves a SENSITIVE ACTION forces a FRESH authentication: after signing in
-# normally, the relying party starts a second authorize with `prompt=login`, and the user is
-# CHALLENGED to authenticate again even though the session is still active — the hub honours
-# `prompt=login` end to end (SSO-3071) and re-drives the identity login.
-#
-# Why the recipe is just env + app + user (no step-up-specific action): step-up here is driven ENTIRELY
-# by the relying party's authorize request (`prompt=login`) — a standard OIDC parameter — so it needs
-# no tenant/app configuration and no new allowlisted action or scope. The provisioning is the same
-# shape as sandbox-signin; the whole re-authentication behaviour lives in the e2e journey + the
-# loopback RP's "sensitive action" route.
-#
-# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
-# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
-# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user).
-#
-# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
-# the loopback OAuth client — targeted at the environment the guided `examples apply` resolves (a
-# sandbox by default, SSO-2876) or the one `--environment` names. The throwaway sandbox and the
-# sign-in-able user the browser scenario needs are FIXTURES in `e2e/provision.yaml` (converged by
-# `thoryn provision apply`); the previous env.create / identity.registerUser (with a published
-# password) / env.delete steps are gone. The step-up re-authentication (prompt=login) behaviour itself is exercised by the journey
-# and the recipe's relying party — it needs no extra tenant configuration from the recipe.
+# stepup-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: stepup-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in an environment you own, then prove a sensitive action forces a fresh re-authentication (OIDC prompt=login / RFC 9470 step-up).
+provision: ./provision.yaml
 
 requires:
   scopes:
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the throwaway sandbox environment the provision file creates (fresh per run)"
+    default: "stepup-signin-{{generate.slug8}}"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Step-up Sign-in App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected environment.
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

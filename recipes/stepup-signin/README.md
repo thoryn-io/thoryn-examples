@@ -12,10 +12,11 @@ This is the third of the MFA / re-authentication examples (epic SSO-3042), along
 passwordless second factor). Where those add a *factor*, this one demonstrates **re-authentication**:
 proving it is still you before a high-value operation.
 
-> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
-> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
-> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
-> `identity.registerUser` below describe v1.
+> **v3 (SSO-3092, epic SSO-3087):** two files. [`provision.yaml`](provision.yaml) is how to get Thoryn up
+> and running for this example — copy it into your own `.thoryn/` and `thoryn provision apply` it, or let
+> `thoryn examples apply stepup-signin` converge it first. [`recipe.yaml`](recipe.yaml) is how to get the example
+> configured: it references the provision file and adds the extra steps beyond the provisioning. Steps
+> about `env.create` / `identity.registerUser` below describe v1.
 
 ## What it demonstrates
 

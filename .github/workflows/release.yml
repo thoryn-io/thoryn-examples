@@ -38,6 +38,8 @@ jobs:
             # Ship both the authored YAML and the generated JSON — the CLI reads recipe.json (no runtime YAML parser).
             cp "$d/recipe.yaml" "dist/recipes/$id/recipe.yaml"
             python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$d/recipe.yaml')), open('dist/recipes/$id/recipe.json','w'), indent=2)"
+            # SSO-3092 — the provisioning file the recipe references (`provision: ./provision.yaml`).
+            [ -f "$d/provision.yaml" ] && cp "$d/provision.yaml" "dist/recipes/$id/provision.yaml" || true
             [ -f "$d/README.md" ] && cp "$d/README.md" "dist/recipes/$id/README.md" || true
             [ -d "$d/apps" ] && cp -r "$d/apps" "dist/recipes/$id/apps" || true
           done

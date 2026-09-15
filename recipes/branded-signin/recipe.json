@@ -1,26 +1,44 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
   "id": "branded-signin",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "summary": "Register a public loopback OAuth client and style the hosted sign-in screen (brand color, radius, theme, CSS variables) in an environment you own, then sign in through the recipe's relying party.",
+  "provision": "./provision.yaml",
   "requires": {
     "scopes": [
+      "tenant:environments.write",
+      "tenant:environments.read",
       "tenant:applications.write",
       "tenant:applications.read",
-      "tenant:idp.write"
+      "tenant:users.write",
+      "tenant:users.read",
+      "tenant:idp.write",
+      "tenant:idp.read"
     ],
-    "minCliVersion": "0.6.0"
+    "minCliVersion": "0.12.0"
   },
   "params": [
     {
       "name": "workspaceSlug",
-      "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)",
+      "prompt": "Standing workspace slug (the workspace your session is bound to; NOT created)",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "envSlug",
+      "prompt": "Slug for the throwaway sandbox environment the provision file creates (fresh per run)",
+      "default": "brand-signin-{{generate.slug8}}",
       "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     },
     {
       "name": "appName",
       "prompt": "Display name for the OAuth client",
       "default": "Branded Sign-in App {{generate.slug8}}"
+    },
+    {
+      "name": "DEMO_USER_PASSWORD",
+      "prompt": "Password for the demo user (feeds the provision file's passwordEnv; never stored)",
+      "default": "Example-{{generate.slug8}}-Pw1!",
+      "secret": true
     },
     {
       "name": "primaryColor",
@@ -35,59 +53,13 @@
       "validate": "^(light|dark|auto)$"
     }
   ],
-  "steps": [
-    {
-      "id": "app",
-      "action": "applications.create",
-      "description": "Register a public loopback authorization-code client in the selected environment.",
-      "with": {
-        "displayName": "{{appName}}",
-        "clientType": "public",
-        "grantTypes": [
-          "authorization_code"
-        ],
-        "scopes": [
-          "openid",
-          "profile",
-          "email"
-        ],
-        "redirectUris": [
-          "http://127.0.0.1/callback"
-        ],
-        "postLogoutRedirectUris": [
-          "http://127.0.0.1/"
-        ]
-      }
-    },
-    {
-      "id": "theme",
-      "action": "tenant.configureLoginTheme",
-      "description": "Style the environment's hosted sign-in screen \u2014 brand color, radius, theme, CSS variables (SSO-3037/3038).",
-      "with": {
-        "primaryColor": "{{primaryColor}}",
-        "backgroundColor": "#ffffff",
-        "borderRadiusPx": 10,
-        "theme": "{{loginTheme}}",
-        "cssVariables": {
-          "--thoryn-accent": "#0369a1",
-          "--thoryn-font-family": "Georgia, serif"
-        }
-      }
-    }
-  ],
   "verify": [
     {
       "assert": "applications.get",
-      "id": "{{app.clientId}}",
+      "id": "{{provision.application.rp.clientId}}",
       "expect": {
         "status": "active"
       }
-    }
-  ],
-  "teardown": [
-    {
-      "action": "applications.delete",
-      "id": "{{app.clientId}}"
     }
   ],
   "assets": {

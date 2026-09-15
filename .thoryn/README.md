@@ -13,12 +13,12 @@ The CLI derives the per-tenant issuer (`https://examples.hub.<env>`), the gatewa
 scopes **from this file**. It is data, not code: the secret is NEVER here, only the *name* of the env
 var that carries it (`auth.secretEnv` = `THORYN_EXAMPLES_CI_CLIENT_SECRET`).
 
-**"What I own" is per scenario, not per repo.** Each browser scenario declares its own fixtures —
-a throwaway sandbox environment (and, where the journey needs one, a test user or an email sink) — in
-`recipes/<id>/e2e/provision.yaml`, converged by `thoryn provision apply` and removed by
-`thoryn provision destroy` at the end of the run. The recipe (`recipes/<id>/recipe.yaml`) is what a
-**customer** applies; the fixtures around it are visibly test scaffolding. See
-[`e2e/README.md`](../e2e/README.md).
+**"What I own" is per example, and it is the example's own file.** Each example's
+`recipes/<id>/provision.yaml` is how to get Thoryn up and running for it (sandbox, loopback client, demo
+user, sign-in methods, look-and-feel) — the same file a customer copies into their own `.thoryn/`. The
+recipe (`recipes/<id>/recipe.yaml`) references it and adds only the extra steps beyond the provisioning;
+`thoryn examples apply` converges the provision file first, and `examples teardown` destroys it. CI applies
+exactly what a customer applies. See [`e2e/README.md`](../e2e/README.md).
 
 ## One-time bootstrap (operator, run once)
 

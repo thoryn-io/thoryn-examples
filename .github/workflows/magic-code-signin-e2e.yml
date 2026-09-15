@@ -1,48 +1,27 @@
 name: magic-code-signin-e2e
 
-# SSO-3091 (epic SSO-3087) — the `magic-code-signin` browser scenario (passwordless 6-digit email code) on the PROVISIONING-AS-CODE
-# shape (generated from sandbox-e2e.yml; the fixture additionally declares the end user the journey signs in as):
+# SSO-3092 (epic SSO-3087) — the `magic-code-signin` browser scenario on the RECIPE-ORCHESTRATES-PROVISION shape:
 #
-#   provision Action (thoryn-cli)   sign in from .thoryn/connection.json, converge the scenario's
-#                                   FIXTURE file recipes/magic-code-signin/e2e/provision.yaml — a
-#                                   throwaway sandbox environment + the sign-in-able user — with
-#                                   `thoryn provision apply` (password: a per-run E2E_USER_PASSWORD)
-#   → examples apply                the SAME recipe a customer fetches from the signed catalog,
-#                                   applied INTO that sandbox (`--environment`): the loopback client
-#   → Playwright journey            self-service sign-up on the hosted login → verification email
-#                                   read from the sandbox TEST-INBOX (SSO-3026/3033) → sign in through
-#                                   the recipe's loopback RP → /protected
-#   → teardown                      `examples teardown` (the client) then `thoryn provision destroy`
-#                                   (the sandbox hard-delete cascades whatever the run created in it)
+#   thoryn login --connection      sign in from .thoryn/connection.json (who I am)
+#   → thoryn examples apply magic-code-signin   converges recipes/magic-code-signin/provision.yaml FIRST (how to get Thoryn up and
+#                                   running for this example: the throwaway sandbox, the loopback client, the demo
+#                                   user, the sign-in methods) — the recipe's params feed its placeholders —
+#                                   then the recipe's extra steps (none for this example)
+#   → Playwright journey            the browser walk through the real hosted screens + the recipe's RP
+#   → thoryn examples teardown      destroys the provisioning (child-first; the sandbox hard-delete cascades)
 #
-# The destroy is THIS workflow's `if: always()` step, not the Action's: a composite Action's steps run
-# together, so an Action-side destroy would fire before the journey. The Action is called with
-# `destroy: "false"` for exactly that reason.
-#
-# Real product APIs only, as a real customer: no DB seeding, no demo endpoint, no imperative sign-in
-# (the connection contract replaces the THORYN_API_KEY bash login), no imperative provisioning (the
-# fixture file replaces per-run `--set envSlug=…` recipe params). The ONLY injected secret is
-# THORYN_EXAMPLES_CI_CLIENT_SECRET — the env var `.thoryn/connection.json` names.
-#
-# Why no Mailpit sink here (the earlier revision started one): a sandbox SUPPRESSES real transactional email and captures it into its
-# test-inbox (TestModeEmailGate, SSO-2449), which the journey reads through `thoryn env test-emails`.
-# The workspace-plane BYO-SMTP sink the earlier revision configured never carried a sandbox email, so
-# it is gone from this workflow (the Mailpit-based scenarios keep theirs).
-#
-# ONE-TIME OPERATOR SETUP (see `.thoryn/README.md`): mint the CI machine client in the `examples`
-# workspace, paste its clientId into `.thoryn/connection.json`, set the repo secret
-# THORYN_EXAMPLES_CI_CLIENT_SECRET. The recipe v2 (client only) reaches CI through the SIGNED CATALOG,
-# so a catalog release (RELEASING.md) must follow the merge before this workflow is green.
+# Real product APIs only, as a real customer: the same recipe + provision file a customer fetches from the
+# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CI_CLIENT_SECRET (the env
+# var the contract names). Needs a cli-v* release carrying `provision:` on recipes (SSO-3100).
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "35 6 * * *" # nightly — STAGGERED: the scenario workflows share the example-e2e concurrency group, which keeps ONE pending run; identical crons cancelled each other
+    - cron: "35 6 * * *" # nightly, staggered — the scenario workflows share the example-e2e concurrency group (one pending run)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only)
 
-# Serialize with the other scenario workflows: they share the standing workspace.
 concurrency:
   group: example-e2e
   cancel-in-progress: false
@@ -52,7 +31,6 @@ env:
   THORYN_GATEWAY: https://api.stg.thoryn.org
   IDENTITY_BASE_URL: https://identity.stg.thoryn.org
   RECIPE: magic-code-signin
-  PROVISION_FILE: recipes/magic-code-signin/e2e/provision.yaml
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
 
@@ -65,66 +43,73 @@ jobs:
       - name: Checkout thoryn-examples
         uses: actions/checkout@v4
 
+      - name: Set up Java (for the thoryn CLI jar)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Set up Node.js (Playwright harness + loopback RP)
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # The fixture file's environment slug is per run (`{{env.E2E_ENV_SLUG}}` in provision.yaml):
-      # the same isolation the SSO-2969 recipe gave, now declared as a fixture and resolved by the CLI.
-      - name: Name this run's sandbox
+      - name: Download the released thoryn CLI (latest cli-v*)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli"; exit 1; }
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
+          echo "Using CLI release $tag"
+
+      # Per-run values the recipe's params / the provision file's placeholders consume. The demo user's
+      # password rides ONLY as the env var the provision file names (passwordEnv: DEMO_USER_PASSWORD) —
+      # never on argv, never in a receipt — and the SAME value is handed to Playwright as SIGNUP_PASSWORD.
+      - name: Name this run
         run: |
           set -euo pipefail
           echo "E2E_ENV_SLUG=magic-code-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          # The user fixture's password (resolved by the CLI from passwordEnv; never on argv, never in the receipt).
           pw="Ex-$(openssl rand -hex 12)!"
           echo "::add-mask::$pw"
-          echo "E2E_USER_PASSWORD=$pw" >> "$GITHUB_ENV"
+          echo "DEMO_USER_PASSWORD=$pw" >> "$GITHUB_ENV"
 
-      # ── Provision the FIXTURES as a real customer (thoryn-cli's reusable Action, SSO-3090) ──
-      # Sets up Java, downloads the released thoryn.jar into ./thoryn.jar, signs in from the
-      # connection contract, `provision plan` + `provision apply --file` the fixture file, and exposes
-      # the provisioned ids. destroy: "false" — the destroy is this workflow's last step.
-      - name: Provision the scenario fixtures (sandbox environment)
-        id: fixtures
-        uses: thoryn-io/thoryn-cli/.github/actions/provision@main
-        with:
-          client-secret: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
-          secret-env: THORYN_EXAMPLES_CI_CLIENT_SECRET
-          connection: .thoryn/connection.json
-          file: ${{ env.PROVISION_FILE }}
-          hub: ${{ env.THORYN_HUB }}
-          destroy: "false"
+      - name: Sign in (connection contract)
+        env:
+          THORYN_EXAMPLES_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          [ -n "${THORYN_EXAMPLES_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CI_CLIENT_SECRET is not set (see .thoryn/README.md)"; exit 1; }
+          java -jar thoryn.jar login --connection .thoryn/connection.json
+          java -jar thoryn.jar login --status
 
-      # ── Apply the EXAMPLE (the customer's recipe) into the provisioned sandbox ──
-      - name: Update the signed recipe catalog (magic-code-signin is NOT bundled in the CLI)
+      - name: Update the signed recipe catalog
         run: |
           set -euo pipefail
           java -jar thoryn.jar examples update
 
-      - name: Apply the magic-code-signin recipe into the sandbox and resolve issuer/client
+      # examples apply converges recipes/magic-code-signin/provision.yaml first (sandbox + client + demo user + sign-in methods),
+      # then the recipe's extra steps. The receipt lists the provisioned resources.
+      - name: Apply the magic-code-signin recipe (provisions first) and resolve issuer/client
         id: apply
-        env:
-          WORKSPACE_SLUG: ${{ steps.fixtures.outputs.workspace-slug }}
-          SANDBOX_ENV_SLUG: ${{ steps.fixtures.outputs.environment }}
         run: |
           set -euo pipefail
-          [ -n "$SANDBOX_ENV_SLUG" ] || { echo "::error::the provisioning Action exposed no environment slug"; exit 1; }
+          slug="$(jq -r '.workspace.slug' .thoryn/connection.json)"
           java -jar thoryn.jar examples apply "$RECIPE" \
-            --set "workspaceSlug=${WORKSPACE_SLUG}" \
-            --environment "$SANDBOX_ENV_SLUG" --yes
+            --set "workspaceSlug=${slug}" --set "envSlug=${E2E_ENV_SLUG}" --yes
           java -jar thoryn.jar examples receipt "$RECIPE" --output json > /tmp/receipt.json
           client="$(jq -r '[.resources[]? | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
           [ -n "$client" ] || { echo "::error::could not parse the clientId from the recipe receipt"; cat /tmp/receipt.json; exit 1; }
           # Per-env issuer = workspace issuer + /{env-slug} path (SecurityConfig, SSO-2411).
-          issuer="https://${WORKSPACE_SLUG}.hub.stg.thoryn.org/${SANDBOX_ENV_SLUG}"
+          issuer="https://${slug}.hub.stg.thoryn.org/${E2E_ENV_SLUG}"
           {
             echo "issuer=$issuer"
             echo "client_id=$client"
+            echo "workspace_slug=$slug"
           } >> "$GITHUB_OUTPUT"
-          echo "Applied '$RECIPE' → client '$client' in sandbox '$SANDBOX_ENV_SLUG' of '$WORKSPACE_SLUG' (issuer=$issuer)"
+          echo "Applied '$RECIPE' → client '$client' in sandbox '$E2E_ENV_SLUG' of '$slug' (issuer=$issuer)"
 
-      # ── Run the journey against the recipe's real loopback RP ──
       - name: Start the loopback relying-party
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
@@ -138,16 +123,15 @@ jobs:
             sleep 1
           done
 
-      - name: Run the Playwright harness (Path B — sandbox test-inbox capture)
+      - name: Run the Playwright harness
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
           THORYN_JAR: ${{ github.workspace }}/thoryn.jar
-          SANDBOX_ENV_SLUG: ${{ steps.fixtures.outputs.environment }}
-          # The fixture user's password (config.password); the journey signs in as <sandbox-slug>@example.com.
-          SIGNUP_PASSWORD: ${{ env.E2E_USER_PASSWORD }}
+          SANDBOX_ENV_SLUG: ${{ env.E2E_ENV_SLUG }}
+          SIGNUP_PASSWORD: ${{ env.DEMO_USER_PASSWORD }}
           CI: "true"
         run: |
           set -euo pipefail
@@ -183,13 +167,11 @@ jobs:
           git pull --rebase --autostash origin main
           git push origin HEAD:main
 
-      # ── Teardown: the example's client, then the fixtures (sandbox hard-delete cascades) ──
-      - name: Teardown the client (examples teardown) and the fixtures (provision destroy)
+      # examples teardown destroys the provisioning (child-first; the sandbox hard-delete cascades the client + users).
+      - name: Teardown (examples teardown)
         if: always()
         run: |
           set -uo pipefail
           [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
           [ -f thoryn.jar ] || { echo "no CLI jar — nothing was provisioned"; exit 0; }
-          java -jar thoryn.jar examples teardown "$RECIPE" || true
-          java -jar thoryn.jar provision destroy --file "$PROVISION_FILE" --yes || \
-            echo "::warning::provision destroy reported an error — check 'thoryn env list' for a leaked sandbox '${E2E_ENV_SLUG:-}'"
+          java -jar thoryn.jar examples teardown "$RECIPE" || echo "::warning::examples teardown reported an error — check for a leaked sandbox named for run $GITHUB_RUN_ID"

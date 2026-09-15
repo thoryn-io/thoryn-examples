@@ -1,68 +1,47 @@
-# SSO-3045 (epic SSO-3042) — `passkey-signin`: the phishing-resistant SECOND-FACTOR example. Same
-# per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able user);
-# the browser journey ENROLS a WebAuthn passkey (driven by a Playwright CDP virtual authenticator),
-# then proves a fresh sign-in is CHALLENGED for the passkey second factor and completes the assertion.
-#
-# WHY this recipe has one extra concept vs totp-signin: passkey MFA is NOT enrolment-driven. TOTP/SMS
-# are challenged the moment they are enrolled; a passkey is challenged only when an ENFORCE-mode login
-# flow has a REQUIRED PASSKEY stage the user can satisfy (LoginFlowEnforceDriver). So the journey, AFTER
-# enrolling the passkey, activates a `password REQUIRED + passkey REQUIRED` login flow for the sandbox
-# via the product CLI — `thoryn login-flow set --stage password:PASSWORD:REQUIRED --stage
-# passkey:PASSKEY:REQUIRED --activate` (SSO-3065; tenant:idp.write). Enrol must precede enforce: the
-# self-service passkey enrol is session-gated, so the user first signs in with the password (the sandbox
-# default flow), enrols, and only then is the passkey-enforcing flow activated.
-#
-# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
-# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
-# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user + passkey + flow).
-#
-# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
-# the loopback OAuth client — targeted at the environment the guided `examples apply` resolves (a
-# sandbox by default, SSO-2876) or the one `--environment` names. The throwaway sandbox and the
-# sign-in-able user the browser scenario needs are FIXTURES in `e2e/provision.yaml` (converged by
-# `thoryn provision apply`); the previous env.create / identity.registerUser (with a published
-# password) / env.delete steps are gone. The passkey (WebAuthn) second factor behaviour itself is exercised by the journey
-# and the recipe's relying party — it needs no extra tenant configuration from the recipe.
+# passkey-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: passkey-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in an environment you own, enrol a WebAuthn passkey, activate a password+passkey login flow, and prove the passkey second-factor challenge on sign-in.
+provision: ./provision.yaml
 
 requires:
   scopes:
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the throwaway sandbox environment the provision file creates (fresh per run)"
+    default: "passkey-signin-{{generate.slug8}}"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Passkey Sign-in App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected environment.
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

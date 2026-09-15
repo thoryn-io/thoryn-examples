@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thoryn.io/schemas/provision/v1/provision.schema.json",
+  "title": "Thoryn provisioning file (.thoryn/provision.yaml)",
+  "description": "SSO-3088/3100 (epic SSO-3087) \u2014 how to get Thoryn up and running: the DESIRED STATE a customer copies into their own .thoryn/ and converges with `thoryn provision apply` \u2014 or that a recipe references (`provision: ./provision.yaml`) so `thoryn examples apply` provisions it first. Resources, not steps; a closed `kind` allowlist; secrets only as env-var NAMES (`passwordEnv`, `smtpPasswordEnv`) or `{{env.NAME}}` placeholders.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "resources"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "thoryn.io/provision/v1"
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/resource"
+      }
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "spec"
+      ],
+      "properties": {
+        "kind": {
+          "description": "CLOSED allowlist of resource kinds, each mapping to one supported product API. `emailProvider`, `loginTheme` and `loginFlow` are singletons per environment (no `name` needed). `user` exists so a scenario can declare its test account; a customer's real users self-register. `loginMethods` (SSO-3100) declares which sign-in methods an environment offers.",
+          "enum": [
+            "environment",
+            "application",
+            "emailProvider",
+            "loginTheme",
+            "loginFlow",
+            "federationMember",
+            "user",
+            "loginMethods"
+          ]
+        },
+        "name": {
+          "description": "Stable converge key (unique per kind within the file). Required for every non-singleton kind.",
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "environment": {
+          "description": "The environment this resource lives in: the `name` of an `environment` resource in this file, or the slug of an environment that already exists. Omitted \u21d2 the workspace's production plane. Not allowed on an `environment` resource.",
+          "type": "string",
+          "minLength": 1
+        },
+        "spec": {
+          "description": "Kind-specific desired state, forwarded to the product API. Property names ending in password / secret / token are REJECTED \u2014 use `<key>Env` naming the env var that carries the value.",
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "pattern": "([Pp]assword|[Ss]ecret|[Tt]oken)$"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "environment"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "environment"
+              ]
+            },
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "slug"
+                ],
+                "properties": {
+                  "slug": {
+                    "description": "A slug, or a `{{env.NAME}}` placeholder resolved from the environment at apply time (a per-run sandbox in CI).",
+                    "type": "string",
+                    "pattern": "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?|.*\\{\\{\\s*env\\.[A-Za-z_][A-Za-z0-9_]*\\s*\\}\\}.*)$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "application"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "displayName"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "user"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "federationMember"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "providerType"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "emailProvider"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "smtpHost"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "loginFlow"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "templateId"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "loginMethods"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "spec": {
+                "type": "object",
+                "required": [
+                  "methods"
+                ],
+                "properties": {
+                  "methods": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "password",
+                        "magic_link",
+                        "magic_code",
+                        "passkey"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

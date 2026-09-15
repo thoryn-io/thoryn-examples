@@ -1,14 +1,12 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
   "id": "magic-link-cross-device-signin",
-  "version": "1.0.0",
-  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, then sign in PASSWORDLESS ACROSS TWO DEVICES \u2014 open the link on another device, redeem its continuation code on the initiating device; then hard-delete the sandbox.",
+  "version": "2.0.0",
+  "summary": "Register a public loopback OAuth client in an environment you own, then sign in PASSWORDLESS ACROSS TWO DEVICES \u2014 open the link on another device, redeem its continuation code on the initiating device.",
   "requires": {
     "scopes": [
-      "tenant:environments.write",
       "tenant:applications.write",
-      "tenant:applications.read",
-      "tenant:users.write"
+      "tenant:applications.read"
     ],
     "minCliVersion": "0.3.7"
   },
@@ -19,36 +17,16 @@
       "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     },
     {
-      "name": "envSlug",
-      "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
-      "default": "magic-xdev-{{generate.slug8}}",
-      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
-    },
-    {
-      "name": "envName",
-      "prompt": "Display name for the ephemeral sandbox environment",
-      "default": "Magic-link Cross-device Sign-in"
-    },
-    {
       "name": "appName",
-      "prompt": "Display name for the ephemeral OAuth client",
+      "prompt": "Display name for the OAuth client",
       "default": "Magic-link Cross-device App {{generate.slug8}}"
     }
   ],
   "steps": [
     {
-      "id": "env",
-      "action": "env.create",
-      "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.",
-      "with": {
-        "slug": "{{envSlug}}",
-        "name": "{{envName}}"
-      }
-    },
-    {
       "id": "app",
       "action": "applications.create",
-      "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.",
+      "description": "Register a public loopback authorization-code client in the selected environment.",
       "with": {
         "displayName": "{{appName}}",
         "clientType": "public",
@@ -67,18 +45,6 @@
           "http://127.0.0.1/"
         ]
       }
-    },
-    {
-      "id": "user",
-      "action": "identity.registerUser",
-      "description": "Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly across two devices.",
-      "with": {
-        "email": "{{envSlug}}@example.com",
-        "password": "Example-Signin-Pw1!",
-        "givenName": "Demo",
-        "familyName": "User",
-        "emailVerified": true
-      }
     }
   ],
   "verify": [
@@ -94,10 +60,10 @@
     {
       "action": "applications.delete",
       "id": "{{app.clientId}}"
-    },
-    {
-      "action": "env.delete",
-      "id": "{{env.id}}"
     }
-  ]
+  ],
+  "assets": {
+    "rp": "./apps/loopback-rp",
+    "docs": "./README.md"
+  }
 }

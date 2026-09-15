@@ -7,6 +7,11 @@ The phishing-resistant MFA example. A verified user in a fresh, throwaway **sand
 It builds on [`sandbox-signin`](../sandbox-signin/) (per-run sandbox + loopback OAuth client + a
 sign-in-able user) and adds one concept: a passkey second factor.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
+> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
+> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
+> `identity.registerUser` below describe v1.
+
 ## Why this recipe activates a login flow (unlike `totp-signin`)
 
 MFA in Thoryn is enrolment-driven **for TOTP/SMS** — enrol it and every sign-in is challenged. A

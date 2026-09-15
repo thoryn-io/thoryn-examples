@@ -12,6 +12,11 @@ This is the third of the MFA / re-authentication examples (epic SSO-3042), along
 passwordless second factor). Where those add a *factor*, this one demonstrates **re-authentication**:
 proving it is still you before a high-value operation.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
+> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
+> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
+> `identity.registerUser` below describe v1.
+
 ## What it demonstrates
 
 - **Step-up is a standard OIDC request, not a product setting.** The relying party asks for a fresh

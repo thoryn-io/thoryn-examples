@@ -10,6 +10,11 @@ computed code.
 > challenges for it. So this recipe provisions the same shape as `sandbox-signin` (no MFA-specific
 > action or scope); the 2FA behaviour lives entirely in the journey.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
+> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
+> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
+> `identity.registerUser` below describe v1.
+
 ## Run it
 
 ```bash

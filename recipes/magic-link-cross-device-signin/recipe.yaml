@@ -17,45 +17,37 @@
 #
 # HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
 # later steps provision into the sandbox; teardown env.delete hard-deletes it (cascading client + user).
+#
+# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
+# the loopback OAuth client — targeted at the environment the guided `examples apply` resolves (a
+# sandbox by default, SSO-2876) or the one `--environment` names. The throwaway sandbox and the
+# sign-in-able user the browser scenario needs are FIXTURES in `e2e/provision.yaml` (converged by
+# `thoryn provision apply`); the previous env.create / identity.registerUser (with a published
+# password) / env.delete steps are gone. The passwordless magic link (cross-device continuation code) behaviour itself is exercised by the journey
+# and the recipe's relying party — it needs no extra tenant configuration from the recipe.
 apiVersion: thoryn.io/examples/v1
 id: magic-link-cross-device-signin
-version: 1.0.0
-summary: Provision an ephemeral sandbox + a loopback OAuth client + a user, then sign in PASSWORDLESS ACROSS TWO DEVICES — open the link on another device, redeem its continuation code on the initiating device; then hard-delete the sandbox.
+version: 2.0.0
+summary: Register a public loopback OAuth client in an environment you own, then sign in PASSWORDLESS ACROSS TWO DEVICES — open the link on another device, redeem its continuation code on the initiating device.
 
 requires:
   scopes:
-    - tenant:environments.write
     - tenant:applications.write
     - tenant:applications.read
-    - tenant:users.write
   minCliVersion: 0.3.7
 
 params:
   - name: workspaceSlug
     prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
-  - name: envSlug
-    prompt: "Slug for the fresh ephemeral sandbox environment (a new one is created per run)"
-    default: "magic-xdev-{{generate.slug8}}"
-    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
-  - name: envName
-    prompt: "Display name for the ephemeral sandbox environment"
-    default: "Magic-link Cross-device Sign-in"
   - name: appName
-    prompt: "Display name for the ephemeral OAuth client"
+    prompt: "Display name for the OAuth client"
     default: "Magic-link Cross-device App {{generate.slug8}}"
 
 steps:
-  - id: env
-    action: env.create
-    description: Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.
-    with:
-      slug: "{{envSlug}}"
-      name: "{{envName}}"
-
   - id: app
     action: applications.create
-    description: Register a public loopback authorization-code client INSIDE the fresh sandbox environment.
+    description: Register a public loopback authorization-code client in the selected environment.
     with:
       displayName: "{{appName}}"
       clientType: public
@@ -63,17 +55,6 @@ steps:
       scopes: ["openid", "profile", "email"]
       redirectUris: ["http://127.0.0.1/callback"]
       postLogoutRedirectUris: ["http://127.0.0.1/"]
-
-  - id: user
-    action: identity.registerUser
-    description: Register a verified, sign-in-able user IN the sandbox; the journey signs this user in passwordlessly across two devices.
-    with:
-      email: "{{envSlug}}@example.com"
-      # A published example credential — the cross-device flow is passwordless; rotate before any real use.
-      password: "Example-Signin-Pw1!"
-      givenName: "Demo"
-      familyName: "User"
-      emailVerified: true
 
 verify:
   - assert: applications.get
@@ -84,5 +65,7 @@ verify:
 teardown:
   - action: applications.delete
     id: "{{app.clientId}}"
-  - action: env.delete
-    id: "{{env.id}}"
+
+assets:
+  rp: ./apps/loopback-rp
+  docs: ./README.md

@@ -7,8 +7,8 @@
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-14T05:48:23.451Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Tests:** 4 passed · 0 failed · 0 skipped (of 4).
+**Generated:** 2026-09-15T05:48:32.203Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -23,6 +23,10 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 | 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
 | 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ✅ passed |
 | 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ✅ passed |
+| 4 | Sign in (password + TOTP challenge) to reach the account portal | ✅ passed |
+| 5 | Regenerate recovery codes on /account/security — a fresh set of 5, distinct from the previous set | ✅ passed |
+| 6 | Disable MFA on the hosted /account/security page (re-auth: current password + live TOTP code) | ✅ passed |
+| 7 | A fresh sign-in is now PASSWORD-ONLY — no second-factor challenge | ✅ passed |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
 
@@ -30,19 +34,21 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ✅ passed | 19.3s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ✅ passed | 17.8s |
 | error path: a wrong TOTP code is rejected at the challenge | ✅ passed | 6.9s |
+| recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ✅ passed | 9.7s |
+| MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ✅ passed | 10.3s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/totp-signin-34810871825-1 |
+| Issuer | examples.hub.stg.thoryn.org/totp-signin-34934120736-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34810871825)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34934120736)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

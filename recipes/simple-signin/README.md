@@ -3,14 +3,17 @@
 Provision a workspace and a public OAuth client, then register a user and sign them in to a protected
 page — the shortest path from "I have a Thoryn account" to "a user just signed in through it".
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the workspace
+> your session is bound to (it no longer creates a workspace, a test user, or an SMTP sender). The CI
+> scenario's email sink is a FIXTURE in [`e2e/provision.yaml`](e2e/provision.yaml) — the same
+> `recipe.yaml` a customer applies is what CI applies. Use the production plane so the verification
+> email is really delivered: `thoryn examples apply simple-signin --environment production`.
+
 ## What it provisions
 
-1. A fresh, disposable **workspace** (`hub.createWorkspace`) — its slug defaults to
-   `ex-signin-<random>` so runs don't collide.
-2. A best-effort **product-api tenant registration** (`productApi.registerTenant`, idempotent).
-3. A **public loopback OAuth client** under that workspace (`applications.create`,
-   `clientType: public`, redirect `http://127.0.0.1/callback`). The hub auto-attaches the tenant's
-   identity provider, so the client is immediately usable for sign-in.
+1. A **public loopback OAuth client** in your workspace (`applications.create`, `clientType: public`,
+   redirect `http://127.0.0.1/callback`), on the environment you select — production by default, so
+   the sign-up verification email goes out over your workspace's real sender.
 
 Then it **verifies** the client is `active`, and on teardown **deletes** it.
 

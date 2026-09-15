@@ -12,9 +12,7 @@
       "tenant:environments.write",
       "tenant:environments.read",
       "tenant:applications.write",
-      "tenant:applications.read",
-      "tenant:users.write",
-      "tenant:email.write"
+      "tenant:applications.read"
     ]
   }
 }

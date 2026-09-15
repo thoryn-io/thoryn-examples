@@ -37,7 +37,7 @@ name: stepup-signin-e2e
 on:
   workflow_dispatch:
   schedule:
-    - cron: "45 5 * * *" # nightly, offset from the other scenario workflows
+    - cron: "55 5 * * *" # nightly — STAGGERED: the scenario workflows share the example-e2e concurrency group, which keeps ONE pending run; identical crons cancelled each other
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only)

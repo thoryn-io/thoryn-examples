@@ -14,7 +14,7 @@
       "tenant:applications.write",
       "tenant:applications.read",
       "tenant:users.write",
-      "tenant:users.read"
+      "tenant:email.write"
     ]
   }
 }

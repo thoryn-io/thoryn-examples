@@ -6,7 +6,7 @@
   },
   "auth": {
     "method": "client_credentials",
-    "clientId": "REPLACE_AFTER_BOOTSTRAP",
+    "clientId": "app-9450eb88-c1f",
     "secretEnv": "THORYN_EXAMPLES_CI_CLIENT_SECRET",
     "scopes": [
       "tenant:environments.write",

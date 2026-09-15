@@ -1,0 +1,24 @@
+{
+  "apiVersion": "thoryn.io/connection/v1",
+  "workspace": {
+    "slug": "examples",
+    "hubBaseUrlEnv": "THORYN_HUB"
+  },
+  "auth": {
+    "method": "client_credentials",
+    "clientId": "REPLACE_AFTER_BOOTSTRAP",
+    "secretEnv": "THORYN_EXAMPLES_CI_CLIENT_SECRET",
+    "scopes": [
+      "tenant:environments.write",
+      "tenant:environments.read",
+      "tenant:applications.write",
+      "tenant:applications.read",
+      "tenant:users.write",
+      "tenant:users.read",
+      "tenant:email.write",
+      "tenant:email.read",
+      "tenant:idp.write",
+      "tenant:idp.read"
+    ]
+  }
+}

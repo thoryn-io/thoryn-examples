@@ -1,0 +1,25 @@
+# SSO-3091 (epic SSO-3087) — the FIXTURES of the `sandbox-signin` browser scenario, as provisioning-
+# as-code. This is test scaffolding, NOT the example: the recipe a customer applies is
+# `../recipe.yaml`; this file only creates the throwaway sandbox the scenario applies that recipe into.
+#
+# Converged by the reusable provisioning Action from thoryn-cli (`thoryn provision apply --file …`)
+# at the start of `.github/workflows/sandbox-e2e.yml`, and removed by `thoryn provision destroy`
+# in the workflow's own `if: always()` step AFTER the journey (a composite Action's steps run
+# together, so the destroy cannot live inside the Action call here). The sandbox hard-delete
+# cascades everything the run created inside it: the recipe's client and the end user the journey
+# registered through the hosted screens.
+#
+# Why no `user` resource: the sandbox-signin journey exercises SELF-SERVICE SIGN-UP on the hosted
+# login (a brand-new end user per run, verified via the sandbox test-inbox, SSO-3026/3033), so a
+# pre-registered account would go unused. Scenarios whose journey needs a known account declare a
+# `user` resource here with `passwordEnv`.
+#
+# The slug is per run (`{{env.E2E_ENV_SLUG}}`, exported by the workflow as
+# `sbx-signin-<run-id>-<attempt>`) — the same isolation the SSO-2969 recipe gave, now as a fixture.
+apiVersion: thoryn.io/provision/v1
+resources:
+  - kind: environment
+    name: sandbox
+    spec:
+      slug: "{{env.E2E_ENV_SLUG}}"
+      displayName: "sandbox-signin e2e"

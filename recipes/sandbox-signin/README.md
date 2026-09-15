@@ -7,6 +7,13 @@ through the recipe's loopback relying party — and hard-deleting **both** the c
 teardown. It uses only supported product workflows (recipes are data, not code; the CLI is the only
 executor, dispatching on a closed action allowlist).
 
+> **SSO-3091/3092 (epic SSO-3087):** the recipe is now ONLY the client. The throwaway sandbox the
+> browser scenario needs is a FIXTURE in [`e2e/provision.yaml`](e2e/provision.yaml) (converged by
+> `thoryn provision apply`, removed by `thoryn provision destroy`), and the journey's end user is
+> registered through the hosted self-service screens — nothing below about `env.create` /
+> `identity.registerUser` steps applies to `recipe.yaml` v2 any more. Apply the recipe into a sandbox
+> you own: `thoryn examples apply sandbox-signin --set workspaceSlug=<ws> --environment <sandbox-slug>`.
+
 It exists for one reason:
 
 > A customer-plane `client_credentials` API key is **tenant-scoped** — bound to one workspace via its

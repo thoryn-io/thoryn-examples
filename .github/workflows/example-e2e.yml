@@ -293,6 +293,9 @@ jobs:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           PORT: ${{ env.RP_PORT }}
+          # SSO-3083 — the RP proxies the CIAM session API (identity /api/v1/me/sessions) on the
+          # user's behalf, so it needs the identity host (the same one that serves the hosted login).
+          IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
         run: |
           node recipes/simple-signin/apps/loopback-rp/server.js &
           echo "RP_PID=$!" >> "$GITHUB_ENV"

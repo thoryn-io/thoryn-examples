@@ -45,6 +45,9 @@ const crypto = require('node:crypto');
 const ISSUER = (process.env.THORYN_ISSUER || '').replace(/\/+$/, '');
 const CLIENT_ID = process.env.THORYN_CLIENT_ID || '';
 const SCOPE = process.env.THORYN_SCOPE || 'openid profile email';
+// The CIAM user-self-service API host (identity). A real app configures this; the /sessions proxy
+// below calls {IDENTITY_BASE_URL}/api/v1/me/sessions with the signed-in user's access token.
+const IDENTITY_BASE_URL = (process.env.IDENTITY_BASE_URL || '').replace(/\/+$/, '');
 const PORT = Number(process.env.PORT || 8471);
 
 if (!ISSUER || !CLIENT_ID) {
@@ -162,11 +165,14 @@ async function callback(res, url) {
   if (!claims) {
     return send(res, 502, page('Sign-in failed', `<p class="err">Token exchange did not return a usable ID token.</p><p><a href="/">Back</a></p>`));
   }
+  // Keep the ACCESS token too: a real app's backend uses it to call the CIAM's user-self-service
+  // API on the user's behalf (here: identity /api/v1/me/sessions — see the /sessions proxy below).
+  const accessToken = tokens && typeof tokens.access_token === 'string' ? tokens.access_token : null;
 
   // Start a session: a random id in an HttpOnly cookie, claims held server-side.
   // We also stash the raw id_token so /logout can end the hub session too.
   const sid = randomToken();
-  sessions.set(sid, { claims, idToken });
+  sessions.set(sid, { claims, idToken, accessToken });
   res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/`);
   redirect(res, '/protected');
 }
@@ -324,6 +330,8 @@ const server = http.createServer(async (req, res) => {
       case '/callback': return await callback(res, url);
       case '/protected': return protectedPage(res, req);
       case '/logout': return await logout(res, req);
+      case '/sessions': return await listSessions(res, req);
+      case '/sessions/revoke': return await revokeSession(res, req, url);
       default: return send(res, 404, 'Not found', 'text/plain');
     }
   } catch (err) {
@@ -353,6 +361,45 @@ function currentSession(req) {
   const sid = cookie(req, 'sid');
   const session = sid ? sessions.get(sid) : undefined;
   return session ? session.claims : null;
+}
+
+/** @returns the full server-side session record (claims + tokens), or undefined. */
+function sessionOf(req) {
+  const sid = cookie(req, 'sid');
+  return sid ? sessions.get(sid) : undefined;
+}
+
+/**
+ * GET /sessions — proxy the CIAM's active-sessions API for the signed-in user. This is the realistic
+ * shape: the APP's backend calls identity /api/v1/me/sessions with the USER'S access token (a bearer
+ * the browser never sees). Returns the raw upstream JSON so a page/script can render "your devices".
+ */
+async function listSessions(res, req) {
+  const session = sessionOf(req);
+  if (!session || !session.accessToken) return send(res, 401, JSON.stringify({ error: 'not_signed_in' }), 'application/json');
+  if (!IDENTITY_BASE_URL) return send(res, 501, JSON.stringify({ error: 'IDENTITY_BASE_URL not configured' }), 'application/json');
+  const upstream = await fetch(`${IDENTITY_BASE_URL}/api/v1/me/sessions`, {
+    headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
+  });
+  const body = await upstream.text();
+  return send(res, upstream.status, body, 'application/json');
+}
+
+/**
+ * POST /sessions/revoke?id=<sessionId> — sign out ONE of the user's other devices, again brokered by
+ * the app backend with the user's access token (identity DELETE /api/v1/me/sessions/{id}).
+ */
+async function revokeSession(res, req, url) {
+  const session = sessionOf(req);
+  if (!session || !session.accessToken) return send(res, 401, JSON.stringify({ error: 'not_signed_in' }), 'application/json');
+  if (!IDENTITY_BASE_URL) return send(res, 501, JSON.stringify({ error: 'IDENTITY_BASE_URL not configured' }), 'application/json');
+  const id = url.searchParams.get('id');
+  if (!id) return send(res, 400, JSON.stringify({ error: 'missing id' }), 'application/json');
+  const upstream = await fetch(`${IDENTITY_BASE_URL}/api/v1/me/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
+  });
+  return send(res, upstream.status, JSON.stringify({ status: upstream.status }), 'application/json');
 }
 
 /** Read one cookie value from the request's Cookie header. */

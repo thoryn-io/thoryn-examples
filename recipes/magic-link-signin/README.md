@@ -12,6 +12,11 @@ the sandbox is hard-deleted on teardown.
 > continuation code you type back on the first device). That is the separate
 > [`magic-link-cross-device-signin`](../magic-link-cross-device-signin/) example.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
+> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
+> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
+> `identity.registerUser` below describe v1.
+
 ## Why no "enable magic link" step
 
 Magic-link is **on by default** in Thoryn's hosted login (it is in the default login-method order),

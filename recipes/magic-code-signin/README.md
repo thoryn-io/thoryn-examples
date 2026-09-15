@@ -8,6 +8,11 @@ the OAuth flow resumes to the relying party's protected page.
 This is the OTP sibling of [`magic-link-signin`](../magic-link-signin) (email *link*) — same
 passwordless idea, a short numeric code the user types instead of a link they click.
 
+> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the environment
+> you select (`--environment <sandbox-slug>`). The throwaway sandbox and the sign-in-able user the browser
+> scenario needs are FIXTURES in [`e2e/provision.yaml`](e2e/provision.yaml). Steps about `env.create` /
+> `identity.registerUser` below describe v1.
+
 ## Opt-in (unlike magic-link)
 
 Magic-code is **not** in the default login-method set, so the journey first **enables it for the

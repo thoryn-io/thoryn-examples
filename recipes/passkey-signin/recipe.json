@@ -1,34 +1,69 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
   "id": "passkey-signin",
-  "version": "1.0.0",
-  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, enrol a WebAuthn passkey, activate a password+passkey login flow, and prove the passkey second-factor challenge on sign-in; then hard-delete the sandbox.",
+  "version": "2.0.0",
+  "summary": "Register a public loopback OAuth client in an environment you own, enrol a WebAuthn passkey, activate a password+passkey login flow, and prove the passkey second-factor challenge on sign-in.",
   "requires": {
     "scopes": [
-      "tenant:environments.write",
       "tenant:applications.write",
-      "tenant:applications.read",
-      "tenant:users.write",
-      "tenant:idp.write"
+      "tenant:applications.read"
     ],
-    "minCliVersion": "0.8.0"
+    "minCliVersion": "0.3.7"
   },
   "params": [
-    { "name": "workspaceSlug", "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)", "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$" },
-    { "name": "envSlug", "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)", "default": "passkey-signin-{{generate.slug8}}", "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$" },
-    { "name": "envName", "prompt": "Display name for the ephemeral sandbox environment", "default": "Passkey Sign-in" },
-    { "name": "appName", "prompt": "Display name for the ephemeral OAuth client", "default": "Passkey Sign-in App {{generate.slug8}}" }
+    {
+      "name": "workspaceSlug",
+      "prompt": "Standing workspace slug (the workspace your API key is scoped to; NOT created)",
+      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+    },
+    {
+      "name": "appName",
+      "prompt": "Display name for the OAuth client",
+      "default": "Passkey Sign-in App {{generate.slug8}}"
+    }
   ],
   "steps": [
-    { "id": "env", "action": "env.create", "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.", "with": { "slug": "{{envSlug}}", "name": "{{envName}}" } },
-    { "id": "app", "action": "applications.create", "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.", "with": { "displayName": "{{appName}}", "clientType": "public", "grantTypes": ["authorization_code"], "scopes": ["openid", "profile", "email"], "redirectUris": ["http://127.0.0.1/callback"], "postLogoutRedirectUris": ["http://127.0.0.1/"] } },
-    { "id": "user", "action": "identity.registerUser", "description": "Register a verified, sign-in-able user IN the sandbox; the journey enrols a passkey for this user.", "with": { "email": "{{envSlug}}@example.com", "password": "Example-Signin-Pw1!", "givenName": "Demo", "familyName": "User", "emailVerified": true } }
+    {
+      "id": "app",
+      "action": "applications.create",
+      "description": "Register a public loopback authorization-code client in the selected environment.",
+      "with": {
+        "displayName": "{{appName}}",
+        "clientType": "public",
+        "grantTypes": [
+          "authorization_code"
+        ],
+        "scopes": [
+          "openid",
+          "profile",
+          "email"
+        ],
+        "redirectUris": [
+          "http://127.0.0.1/callback"
+        ],
+        "postLogoutRedirectUris": [
+          "http://127.0.0.1/"
+        ]
+      }
+    }
   ],
   "verify": [
-    { "assert": "applications.get", "id": "{{app.clientId}}", "expect": { "status": "active" } }
+    {
+      "assert": "applications.get",
+      "id": "{{app.clientId}}",
+      "expect": {
+        "status": "active"
+      }
+    }
   ],
   "teardown": [
-    { "action": "applications.delete", "id": "{{app.clientId}}" },
-    { "action": "env.delete", "id": "{{env.id}}" }
-  ]
+    {
+      "action": "applications.delete",
+      "id": "{{app.clientId}}"
+    }
+  ],
+  "assets": {
+    "rp": "./apps/loopback-rp",
+    "docs": "./README.md"
+  }
 }

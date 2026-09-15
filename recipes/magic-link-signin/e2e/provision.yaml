@@ -1,0 +1,28 @@
+# SSO-3091 (epic SSO-3087) — the FIXTURES of the `magic-link-signin` browser scenario: test scaffolding, NOT the
+# example (`../recipe.yaml` is what a customer applies). Per run: a throwaway sandbox
+# (`{{env.E2E_ENV_SLUG}}`, exported by the workflow) and the verified, sign-in-able end user the
+# journey signs in as (`<sandbox-slug>@example.com`, the address the spec derives from
+# SANDBOX_ENV_SLUG; its password comes from the env var `passwordEnv` names — the workflow generates
+# one per run and passes the same value to Playwright as SIGNUP_PASSWORD — never written here or to the
+# receipt). The recipe's client is applied INTO the sandbox by `examples apply --environment`.
+#
+# Converged by the thoryn-cli provision Action at the start of `.github/workflows/magic-link-signin-e2e.yml`;
+# removed by `thoryn provision destroy` in the workflow's own `if: always()` step after the journey
+# (the sandbox hard-delete cascades the client and the user).
+apiVersion: thoryn.io/provision/v1
+resources:
+  - kind: environment
+    name: sandbox
+    spec:
+      slug: "{{env.E2E_ENV_SLUG}}"
+      displayName: "magic-link-signin e2e"
+
+  - kind: user
+    name: tester
+    environment: sandbox
+    spec:
+      email: "{{env.E2E_ENV_SLUG}}@example.com"
+      passwordEnv: E2E_USER_PASSWORD
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true

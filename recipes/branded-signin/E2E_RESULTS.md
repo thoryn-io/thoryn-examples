@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/branded-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-14T05:32:49.456Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-15T05:32:49.422Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -25,6 +25,10 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 | 3 | Capture the REAL verification email from the sandbox test-inbox (thoryn env test-emails) | ✅ passed |
 | 4 | Follow the captured verify-email link → “Your email is verified” | ✅ passed |
 | 5 | Return to the RP, sign in → land on /protected; the id_token `env` claim names the sandbox | ✅ passed |
+| 6 | Forgot password (sandbox): follow “Forgot your password?” → request a reset in the sandbox | ✅ passed |
+| 7 | Capture the REAL password-reset email from the sandbox test-inbox (channel password_reset) | ✅ passed |
+| 8 | Follow the captured reset link → set a NEW password → “password updated” | ✅ passed |
+| 9 | Sign in with the NEW password against the sandbox issuer → /protected | ✅ passed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
 
@@ -32,19 +36,19 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand | ✅ passed | 12.3s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.7s |
+| full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand | ✅ passed | 23.3s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.6s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/brand-signin-34809945672-1 |
+| Issuer | examples.hub.stg.thoryn.org/brand-signin-34933066709-1 |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34809945672)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/34933066709)
 - [Playwright HTML report (CI artifact)](the `branded-signin-e2e-playwright-report` artifact on the CI run)
 

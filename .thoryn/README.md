@@ -28,7 +28,10 @@ customer plane — no DB seed, no shortcut:
 1. Sign in to the `examples` workspace interactively (browser OIDC):
    `thoryn login --issuer https://hub.stg.thoryn.org` then `thoryn workspace switch examples`.
 2. Mint a confidential `client_credentials` client granting exactly the scopes listed in
-   `connection.json` (the union every scenario's fixtures + recipe need). Your own session must hold
+   `connection.json` — TODAY the environments + applications + users set that the migrated scenario
+   (sandbox-signin) needs; `tenant:email.*` / `tenant:idp.*` are added to BOTH the client's grant and
+   this list when the Mailpit-based and branding/login-flow scenarios migrate (the hub answers
+   `invalid_scope` to a client-credentials request that exceeds the client's grant). Your own session must hold
    every scope you delegate, so sign in with them (`thoryn login --issuer … --scope "openid offline_access tenant:…"`);
    `--redirect-uri` is required by `clients create` even for a client-credentials client (never used):
    ```bash

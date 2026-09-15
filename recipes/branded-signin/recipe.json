@@ -1,14 +1,12 @@
 {
   "apiVersion": "thoryn.io/examples/v1",
   "id": "branded-signin",
-  "version": "1.0.0",
-  "summary": "Provision an ephemeral sandbox + a loopback OAuth client + a user, STYLE its hosted sign-in screen (logo/colors/theme), sign in, then hard-delete the sandbox.",
+  "version": "2.0.0",
+  "summary": "Register a public loopback OAuth client and style the hosted sign-in screen (brand color, radius, theme, CSS variables) in an environment you own, then sign in through the recipe's relying party.",
   "requires": {
     "scopes": [
-      "tenant:environments.write",
       "tenant:applications.write",
       "tenant:applications.read",
-      "tenant:users.write",
       "tenant:idp.write"
     ],
     "minCliVersion": "0.6.0"
@@ -20,19 +18,8 @@
       "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
     },
     {
-      "name": "envSlug",
-      "prompt": "Slug for the fresh ephemeral sandbox environment (a new one is created per run)",
-      "default": "brand-signin-{{generate.slug8}}",
-      "validate": "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
-    },
-    {
-      "name": "envName",
-      "prompt": "Display name for the ephemeral sandbox environment",
-      "default": "Branded Sign-in"
-    },
-    {
       "name": "appName",
-      "prompt": "Display name for the ephemeral OAuth client",
+      "prompt": "Display name for the OAuth client",
       "default": "Branded Sign-in App {{generate.slug8}}"
     },
     {
@@ -50,18 +37,9 @@
   ],
   "steps": [
     {
-      "id": "env",
-      "action": "env.create",
-      "description": "Create a fresh, throwaway SANDBOX environment in the standing workspace; later steps provision into it.",
-      "with": {
-        "slug": "{{envSlug}}",
-        "name": "{{envName}}"
-      }
-    },
-    {
       "id": "app",
       "action": "applications.create",
-      "description": "Register a public loopback authorization-code client INSIDE the fresh sandbox environment.",
+      "description": "Register a public loopback authorization-code client in the selected environment.",
       "with": {
         "displayName": "{{appName}}",
         "clientType": "public",
@@ -84,7 +62,7 @@
     {
       "id": "theme",
       "action": "tenant.configureLoginTheme",
-      "description": "Style the sandbox's hosted sign-in screen — brand color, radius, theme (SSO-3037). Applied to THIS env only.",
+      "description": "Style the environment's hosted sign-in screen \u2014 brand color, radius, theme, CSS variables (SSO-3037/3038).",
       "with": {
         "primaryColor": "{{primaryColor}}",
         "backgroundColor": "#ffffff",
@@ -94,18 +72,6 @@
           "--thoryn-accent": "#0369a1",
           "--thoryn-font-family": "Georgia, serif"
         }
-      }
-    },
-    {
-      "id": "user",
-      "action": "identity.registerUser",
-      "description": "Register a verified, sign-in-able user IN the sandbox so `examples run` can sign in end to end.",
-      "with": {
-        "email": "{{envSlug}}@example.com",
-        "password": "Example-Signin-Pw1!",
-        "givenName": "Demo",
-        "familyName": "User",
-        "emailVerified": true
       }
     }
   ],
@@ -122,10 +88,10 @@
     {
       "action": "applications.delete",
       "id": "{{app.clientId}}"
-    },
-    {
-      "action": "env.delete",
-      "id": "{{env.id}}"
     }
-  ]
+  ],
+  "assets": {
+    "rp": "./apps/loopback-rp",
+    "docs": "./README.md"
+  }
 }

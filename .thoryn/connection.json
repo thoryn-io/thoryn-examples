@@ -16,7 +16,9 @@
       "tenant:users.write",
       "tenant:users.read",
       "tenant:email.write",
-      "tenant:email.read"
+      "tenant:email.read",
+      "tenant:idp.write",
+      "tenant:idp.read"
     ]
   }
 }

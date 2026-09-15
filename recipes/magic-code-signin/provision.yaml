@@ -1,0 +1,42 @@
+# magic-code-signin — how to get Thoryn up and running for this example (passwordless 6-digit email code).
+# SSO-3092 (epic SSO-3087): this is the file a customer copies into their own `.thoryn/` and converges with
+# `thoryn provision apply`; `thoryn examples apply magic-code-signin` converges it FIRST (the recipe's params feed the
+# `{{env.NAME}}` / `*Env` placeholders below), then runs the recipe's extra steps. Closed `kind` allowlist
+# (schema/provision.schema.json); secrets only as env-var NAMES.
+apiVersion: thoryn.io/provision/v1
+resources:
+  - kind: environment
+    name: sandbox
+    spec:
+      slug: "{{env.envSlug}}"
+      displayName: "magic-code-signin example"
+
+  - kind: application
+    name: rp
+    environment: sandbox
+    spec:
+      displayName: "{{env.appName}}"
+      clientType: public
+      grantTypes: ["authorization_code"]
+      scopes: ["openid", "profile", "email"]
+      redirectUris: ["http://127.0.0.1/callback"]
+      # RFC 8252 loopback (port-agnostic) + OIDC RP-Initiated Logout post-logout URI (SSO-2897).
+      postLogoutRedirectUris: ["http://127.0.0.1/"]
+
+  - kind: user
+    name: demo
+    environment: sandbox
+    spec:
+      # The demo account `thoryn examples run` (and the CI journey) signs in as. The password comes from
+      # the env var / recipe param named here — never written to this file or any receipt.
+      email: "{{env.envSlug}}@example.com"
+      passwordEnv: DEMO_USER_PASSWORD
+      givenName: "Demo"
+      familyName: "User"
+      emailVerified: true
+
+  - kind: loginMethods
+    environment: sandbox
+    spec:
+      # Which sign-in methods this environment offers (SSO-3100 kind; product-api PUT /login-methods).
+      methods: ["password", "magic_code"]

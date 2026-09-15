@@ -1,65 +1,44 @@
-# `simple-signin` — the shortest path from "I have a Thoryn workspace" to "a user just signed in
-# through it": a public loopback OAuth client in your workspace's PRODUCTION plane, then the recipe's
-# relying party walks a real user through hosted sign-up (with a REAL verification email over your
-# workspace's sender) and sign-in.
-#
-# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
-# the client. What used to sit beside it was test scaffolding and moved out:
-#   * `hub.createWorkspace` / `productApi.registerTenant` — every customer already has a workspace after
-#     onboarding; the recipe targets the workspace your session is bound to (`workspaceSlug` names it, it
-#     is NOT created). This is also what lets the CI scenario apply the SAME file a customer applies (a
-#     tenant-scoped CI credential cannot create workspaces).
-#   * `identity.registerUser` with a published password — the journey registers its user on the hosted
-#     self-service screens.
-#   * the seven `smtp*` params + `tenant.configureEmailProvider` — the CI email sink is a FIXTURE in
-#     `e2e/provision.yaml`; a customer's real sender is configured with `thoryn workspace email-provider`.
-#
-# Apply it on the production plane (the default for a workspace with no sandbox selected) so the
-# verification email is REALLY delivered: `thoryn examples apply simple-signin --environment production`.
-# Sibling: `sandbox-signin` — the same client in a SANDBOX, where email is captured in the test-inbox.
+# simple-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: simple-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in your workspace, then sign a user up (real verification email) and in through the recipe's relying party.
+provision: ./provision.yaml
 
 requires:
   scopes:
     - tenant:applications.write
     - tenant:applications.read
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Your workspace slug (the workspace your session is bound to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: demoEmail
+    prompt: "Email address of the demo user the provision file registers"
+    default: "demo-{{generate.slug8}}@example.com"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Sign-in Example App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected environment (production by default).
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      # RP-Initiated Logout (SSO-2897): port-agnostic loopback post-logout redirect, per RFC 8252.
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-# Teardown removes what the recipe created: the client. The workspace is yours; the users the
-# journey registered are yours too (delete them with `thoryn users …` if they were only a demo).
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

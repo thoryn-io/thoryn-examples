@@ -13,26 +13,28 @@ This is the one hard rule; everything else is convention.
   that seeds a database, calls a demo/backdoor endpoint, or hardcodes state.
 - Secrets are **never** written into a recipe. Server-minted secrets are returned once and written to
   a file by the CLI; a recipe only references ids, never secret values.
-- **A recipe is what a CUSTOMER applies; test fixtures are not part of it (SSO-3087).** No test user
-  with a published password, no per-run sandbox, no CI-only SMTP sink in `recipe.yaml`. Those are the
-  scenario's fixtures and live in `recipes/<id>/e2e/provision.yaml` (a provisioning file, schema
-  `provision.schema.json` in thoryn-cli, closed `kind` allowlist, secrets only as env-var NAMES). The
-  recipe targets the environment `thoryn examples apply` resolves (`--environment <slug>`); it never
-  creates one.
+- **Two files per example (SSO-3087, amended 2026-09-15).** `recipes/<id>/provision.yaml` is *how to get
+  Thoryn up and running* for the example — the sandbox, the loopback client, the demo user, the sign-in
+  methods, the look-and-feel, … (schema `schema/provision.schema.json`, a closed `kind` allowlist, secrets
+  only as env-var NAMES); it is the file a customer copies into their own `.thoryn/`. `recipes/<id>/recipe.yaml`
+  is *how to get the example configured*: `provision: ./provision.yaml` plus the extra steps beyond the
+  provisioning (params that feed the provision file's placeholders, the RP asset, `run`/`verify`).
+  `thoryn examples apply` converges the provision file FIRST, then the recipe's extras; `teardown` destroys it.
 
 ## Adding a recipe
 
-1. Create `recipes/<id>/recipe.yaml` (see [`recipes/simple-signin/recipe.yaml`](recipes/simple-signin/recipe.yaml)).
+1. Create `recipes/<id>/provision.yaml` (how to get Thoryn up and running for the example) and
+   `recipes/<id>/recipe.yaml` (how to get the example configured; it references the provision file) —
+   see [`recipes/sandbox-signin/`](recipes/sandbox-signin/).
 2. Add `recipes/<id>/README.md` describing what it provisions and how to run it.
 3. If it needs a runnable app (e.g. a relying party), put it under `recipes/<id>/apps/`.
 4. Validate locally against the schema (CI runs the same check):
    ```bash
    npx --yes ajv-cli@5 validate -s schema/recipe.schema.json -d "recipes/**/recipe.yaml" --spec=draft2020 -c ajv-formats
+   npx --yes ajv-cli@5 validate -s schema/provision.schema.json -d "recipes/**/provision.yaml" --spec=draft2020
    ```
 5. (Optional, recommended for user-facing flows) add a **colocated** browser E2E under
-   `recipes/<id>/e2e/` — a `provision.yaml` (the scenario's FIXTURES: a throwaway sandbox and,
-   if the journey needs one, a test user with `passwordEnv` or an email sink; converged by
-   `thoryn provision apply`, removed by `thoryn provision destroy` — SSO-3091), — a `scenario.mjs` (declared steps) + a `*-journey.spec.ts` that
+   `recipes/<id>/e2e/` — — a `scenario.mjs` (declared steps) + a `*-journey.spec.ts` that
    imports the shared harness from the repo-root [`e2e/`](e2e/) tree (config + Mailpit
    capture), and wire it as a project in [`e2e/playwright.config.ts`](e2e/playwright.config.ts).
    Seed its report with `npm run results:init`. See [`e2e/README.md`](e2e/README.md). Keep
@@ -45,7 +47,8 @@ This is the one hard rule; everything else is convention.
 | `apiVersion` | `thoryn.io/examples/v1` |
 | `id` / `version` / `summary` | identity + a one-line description |
 | `params` | typed inputs (`prompt`, optional `default`, `validate` regex, `secret`); referenced as `{{name}}`. `{{generate.slug8}}` / `{{generate.uuid}}` produce fresh values. |
-| `steps` | ordered actions; a step's outputs are addressable as `{{<step id>.<field>}}` |
+| `provision` | recipe-relative path to the provisioning file `examples apply` converges first; its resources are addressable as `{{provision.<kind>.<name>.<field>}}` |
+| `steps` | ordered EXTRA actions beyond the provisioning (optional when `provision` is set); a step's outputs are addressable as `{{<step id>.<field>}}` |
 | `verify` | read-only assertions that must pass |
 | `teardown` | best-effort removal (reverse order) |
 | `assets` | recipe-relative paths (a runnable app, docs) |

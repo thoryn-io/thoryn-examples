@@ -1,36 +1,23 @@
 name: example-e2e
 
-# SSO-3091 (epic SSO-3087) — the `simple-signin` browser scenario on the PROVISIONING-AS-CODE shape:
+# SSO-3092 (epic SSO-3087) — the `simple-signin` browser scenario on the RECIPE-ORCHESTRATES-PROVISION shape:
 #
-#   Mailpit + tunnel                an EPHEMERAL in-job mail sink (Docker) with a public SMTP tunnel —
-#                                   the only piece that is not a Thoryn resource
-#   → provision Action (thoryn-cli)  sign in from .thoryn/connection.json, converge the scenario's
-#                                   FIXTURE file recipes/simple-signin/e2e/provision.yaml — the
-#                                   workspace's BYO-SMTP sender pointed at the sink — with
-#                                   `thoryn provision apply` (the tunnel host/port/password ride as env)
-#   → examples apply                the SAME recipe a customer fetches from the signed catalog: the
-#                                   loopback client, on the workspace's PRODUCTION plane (real email)
-#   → Playwright journey            self-service sign-up → REAL verification email captured from the
-#                                   sink → verify → sign in through the recipe's RP → /protected →
-#                                   forgot-password / unlock / sign-out / suspended-login paths
-#   → teardown                      `examples teardown` (the client), `thoryn provision destroy
-#                                   --confirm <workspace>` (resets the sender), the sink, the tunnel
+#   thoryn login --connection      sign in from .thoryn/connection.json (who I am)
+#   → thoryn examples apply simple-signin   converges recipes/simple-signin/provision.yaml FIRST (how to get Thoryn up and
+#                                   running for this example: the loopback client, the demo
+#                                   user) — the recipe's params feed its placeholders —
+#                                   then the recipe's extra steps (none for this example)
+#   → Playwright journey            the browser walk through the real hosted screens + the recipe's RP
+#   → thoryn examples teardown      destroys the provisioning (child-first)
 #
-# The destroy is THIS workflow's `if: always()` step, not the Action's (a composite Action's steps run
-# together), so the Action is called with `destroy: "false"`. Real product APIs only, as a real
-# customer: the connection contract replaces the THORYN_API_KEY bash login; the fixture file
-# replaces the imperative `workspace email-provider set`. The ONLY injected secret is
-# THORYN_EXAMPLES_CI_CLIENT_SECRET (plus the tunnel provider's token). The harness's suspended-login
-# case (SSO-3081) still drives `thoryn users suspend` through its own isolated session; it receives
-# the same identity as `<clientId>:<secret>` composed from the contract + the secret.
-#
-# The recipe v2 (client only) reaches CI through the SIGNED CATALOG (`examples update`), so a catalog
-# release must follow a recipe change before this workflow sees it (RELEASING.md).
+# Real product APIs only, as a real customer: the same recipe + provision file a customer fetches from the
+# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CI_CLIENT_SECRET (the env
+# var the contract names) plus the tunnel provider's token. Needs a cli-v* release carrying `provision:` on recipes (SSO-3100).
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "41 4 * * *" # nightly, offset from conformance.yml (23 4) and sandbox-e2e.yml (5 5)
+    - cron: "41 4 * * *" # nightly, staggered — the scenario workflows share the example-e2e concurrency group (one pending run)
 
 permissions:
   contents: write # commit the regenerated E2E_RESULTS.md back (default branch only)
@@ -44,12 +31,9 @@ env:
   THORYN_GATEWAY: https://api.stg.thoryn.org
   IDENTITY_BASE_URL: https://identity.stg.thoryn.org
   RECIPE: simple-signin
-  PROVISION_FILE: recipes/simple-signin/e2e/provision.yaml
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
-  # The BYO-SMTP "from" address. Mailpit captures every message regardless of sender.
   SMTP_FROM_ADDRESS: noreply@example.test
-  # Which public TCP tunnel to open to the in-job Mailpit SMTP port: ngrok (needs NGROK_AUTHTOKEN) | bore.
   SINK_TUNNEL: ${{ vars.SINK_TUNNEL || 'ngrok' }}
 
 jobs:
@@ -61,10 +45,46 @@ jobs:
       - name: Checkout thoryn-examples
         uses: actions/checkout@v4
 
+      - name: Set up Java (for the thoryn CLI jar)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Set up Node.js (Playwright harness + loopback RP)
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Download the released thoryn CLI (latest cli-v*)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo thoryn-io/thoryn-cli --limit 40 --json tagName -q '.[].tagName' | grep '^cli-v' | head -1)"
+          [ -n "$tag" ] || { echo "::error::no cli-v* release found in thoryn-io/thoryn-cli"; exit 1; }
+          gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
+          echo "Using CLI release $tag"
+
+      # Per-run values the recipe's params / the provision file's placeholders consume. The demo user's
+      # password rides ONLY as the env var the provision file names (passwordEnv: DEMO_USER_PASSWORD) —
+      # never on argv, never in a receipt — and the SAME value is handed to Playwright as SIGNUP_PASSWORD.
+      - name: Name this run
+        run: |
+          set -euo pipefail
+          echo "DEMO_EMAIL=demo-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@example.com" >> "$GITHUB_ENV"
+          pw="Ex-$(openssl rand -hex 12)!"
+          echo "::add-mask::$pw"
+          echo "DEMO_USER_PASSWORD=$pw" >> "$GITHUB_ENV"
+
+      - name: Sign in (connection contract)
+        env:
+          THORYN_EXAMPLES_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          [ -n "${THORYN_EXAMPLES_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CI_CLIENT_SECRET is not set (see .thoryn/README.md)"; exit 1; }
+          java -jar thoryn.jar login --connection .thoryn/connection.json
+          java -jar thoryn.jar login --status
 
       - name: Start in-job Mailpit + open a public TCP tunnel to its SMTP port
         id: sink
@@ -140,13 +160,7 @@ jobs:
             echo "smtp_host=$host"
             echo "smtp_port=$port"
           } >> "$GITHUB_OUTPUT"
-          # SSO-3091 — the fixture file (recipes/simple-signin/e2e/provision.yaml) resolves the sink
-          # from these env vars: {{env.SINK_SMTP_HOST}} / {{env.SINK_SMTP_PORT}} / smtpPasswordEnv.
-          {
-            echo "SINK_SMTP_HOST=$host"
-            echo "SINK_SMTP_PORT=$port"
-            echo "SINK_SMTP_PASSWORD=$SMTP_PW"
-          } >> "$GITHUB_ENV"
+
           echo "Public SMTP sink: ${host}:${port} → in-job Mailpit :1025 (API on localhost:8025)"
 
       # ── Point the STANDING workspace's BYO-SMTP (SSO-2917) at the tunnelled sink ──
@@ -157,45 +171,46 @@ jobs:
       # SMTP password is passed through a 0600 temp FILE, never on argv (the CLI has no
       # `--smtp-password <value>` flag by design — SSO-1545 secret-safety).
 
-      # ── Provision the FIXTURES as a real customer (thoryn-cli's reusable Action, SSO-3090) ──
-      # Sets up Java, downloads the released thoryn.jar into ./thoryn.jar, signs in from the
-      # connection contract, `provision plan` + `provision apply --file` the fixture file (the sender
-      # → the sink; resolved from the SINK_* env exported above). destroy: "false" — see teardown.
-      - name: Provision the scenario fixtures (BYO-SMTP sender → the sink)
-        id: fixtures
-        uses: thoryn-io/thoryn-cli/.github/actions/provision@main
-        with:
-          client-secret: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
-          secret-env: THORYN_EXAMPLES_CI_CLIENT_SECRET
-          connection: .thoryn/connection.json
-          file: ${{ env.PROVISION_FILE }}
-          hub: ${{ env.THORYN_HUB }}
-          destroy: "false"
+      - name: Point the standing workspace BYO-SMTP at the tunnelled sink
+        env:
+          SINK_SMTP_HOST: ${{ steps.sink.outputs.smtp_host }}
+          SINK_SMTP_PORT: ${{ steps.sink.outputs.smtp_port }}
+        run: |
+          set -euo pipefail
+          [ -n "${SINK_SMTP_HOST:-}" ] && [ -n "${SINK_SMTP_PORT:-}" ] || { echo "::error::tunnel host/port missing"; exit 1; }
+          pw_file="$(mktemp)"; chmod 600 "$pw_file"
+          printf '%s' "$SMTP_PW" > "$pw_file"
+          # CI plumbing, not part of the example: the workspace's real sender is whatever the customer configured.
+          java -jar thoryn.jar workspace email-provider set \
+            --smtp-host "$SINK_SMTP_HOST" --smtp-port "$SINK_SMTP_PORT" --smtp-username ci \
+            --smtp-password-file "$pw_file" --transport-security none --allow-insecure \
+            --from-address "$SMTP_FROM_ADDRESS" --enabled true --gateway "$THORYN_GATEWAY"
+          rm -f "$pw_file"
 
-      # ── Apply the EXAMPLE (the customer's recipe) on the workspace's production plane ──
       - name: Update the signed recipe catalog
         run: |
           set -euo pipefail
           java -jar thoryn.jar examples update
 
-      - name: Apply the simple-signin recipe and resolve issuer/client
+      # examples apply converges recipes/simple-signin/provision.yaml first (the client + the demo user on the
+      # PRODUCTION plane, where the real verification email goes out), then the recipe's extra steps.
+      - name: Apply the simple-signin recipe (provisions first) and resolve issuer/client
         id: apply
-        env:
-          WORKSPACE_SLUG: ${{ steps.fixtures.outputs.workspace-slug }}
         run: |
           set -euo pipefail
+          slug="$(jq -r '.workspace.slug' .thoryn/connection.json)"
           java -jar thoryn.jar examples apply "$RECIPE" \
-            --set "workspaceSlug=${WORKSPACE_SLUG}" --environment production --yes
+            --set "workspaceSlug=${slug}" --set "demoEmail=${DEMO_EMAIL}" --environment production --yes
           java -jar thoryn.jar examples receipt "$RECIPE" --output json > /tmp/receipt.json
-          client="$(jq -r '[.resources[] | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
+          client="$(jq -r '[.resources[]? | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
           [ -n "$client" ] || { echo "::error::could not parse the clientId from the recipe receipt"; cat /tmp/receipt.json; exit 1; }
           {
-            echo "issuer=${{ steps.fixtures.outputs.issuer }}"
+            echo "issuer=https://${slug}.hub.stg.thoryn.org"
             echo "client_id=$client"
+            echo "workspace_slug=$slug"
           } >> "$GITHUB_OUTPUT"
-          echo "Applied '$RECIPE' → client '$client' in workspace '$WORKSPACE_SLUG' (issuer=${{ steps.fixtures.outputs.issuer }})"
+          echo "Applied '$RECIPE' → client '$client' in workspace '$slug'"
 
-      # ── Run the journey against the recipe's real loopback RP ──
       - name: Start the loopback relying-party
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
@@ -209,18 +224,16 @@ jobs:
             sleep 1
           done
 
-      - name: Run the Playwright harness (Path B — Mailpit email capture)
+      - name: Run the Playwright harness
         env:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
-          MAILPIT_BASE_URL: http://localhost:8025
           THORYN_JAR: ${{ github.workspace }}/thoryn.jar
-          # SSO-3081 suspended-login case: the harness signs its own isolated client-credentials session
-          # in as <clientId>:<secret> — the SAME identity the contract binds, composed here (never argv).
+          MAILPIT_BASE_URL: http://localhost:8025
           THORYN_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
-          THORYN_WORKSPACE_SLUG: ${{ steps.fixtures.outputs.workspace-slug }}
+          THORYN_WORKSPACE_SLUG: ${{ steps.apply.outputs.workspace_slug }}
           THORYN_GATEWAY: ${{ env.THORYN_GATEWAY }}
           CI: "true"
         run: |
@@ -258,11 +271,9 @@ jobs:
           git pull --rebase --autostash origin main
           git push origin HEAD:main
 
-      # ── Teardown: the client, then the fixture (production-plane sender → confirmation-gated), sink, tunnel ──
-      - name: Teardown the client (examples teardown), the sender (provision destroy), the sink and the tunnel
+      # examples teardown destroys the provisioning (child-first; production-plane resources need the workspace-slug confirmation the CLI derives from the receipt).
+      - name: Teardown (examples teardown + sink, tunnel, sender reset)
         if: always()
-        env:
-          WORKSPACE_SLUG: ${{ steps.fixtures.outputs.workspace-slug }}
         run: |
           set -uo pipefail
           [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
@@ -270,9 +281,6 @@ jobs:
           [ -n "${BORE_PID:-}" ] && kill "$BORE_PID" 2>/dev/null || true
           docker rm -f mailpit 2>/dev/null || true
           [ -f thoryn.jar ] || { echo "no CLI jar — nothing was provisioned"; exit 0; }
-          java -jar thoryn.jar examples teardown "$RECIPE" || true
-          slug="${WORKSPACE_SLUG:-$(jq -r '.workspace.slug' .thoryn/connection.json)}"
-          java -jar thoryn.jar provision destroy --file "$PROVISION_FILE" --yes --confirm "$slug" || \
-            echo "::warning::provision destroy reported an error"
-          # Belt and braces: an ADOPTED sender (left by an earlier failed run) is never deleted by destroy.
+          java -jar thoryn.jar examples teardown "$RECIPE" || echo "::warning::examples teardown reported an error — check for a leaked client/user named for run $GITHUB_RUN_ID"
+          slug="$(jq -r '.workspace.slug' .thoryn/connection.json)"
           java -jar thoryn.jar workspace email-provider reset --confirm "$slug" --gateway "$THORYN_GATEWAY" || true

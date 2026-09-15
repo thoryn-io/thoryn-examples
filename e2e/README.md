@@ -8,24 +8,22 @@ recipe **owns its spec**, colocated with the recipe it validates:
 | [`simple-signin`](../recipes/simple-signin/) | [`recipes/simple-signin/e2e/`](../recipes/simple-signin/e2e/) | `example-e2e.yml` | [`E2E_RESULTS.md`](../recipes/simple-signin/E2E_RESULTS.md) |
 | [`sandbox-signin`](../recipes/sandbox-signin/) | [`recipes/sandbox-signin/e2e/`](../recipes/sandbox-signin/e2e/) | `sandbox-e2e.yml` | [`E2E_RESULTS.md`](../recipes/sandbox-signin/E2E_RESULTS.md) |
 
-**Three files per scenario (SSO-3091, epic SSO-3087).** A scenario is the recipe, its fixtures,
-and its journey — kept apart on purpose so the recipe stays byte-identical to what a customer
-fetches from the signed catalog:
+**Three files per scenario (SSO-3087, amended 2026-09-15).** A scenario is the example's provisioning,
+its orchestration, and its journey:
 
 | File | Role | Who runs it |
 |---|---|---|
-| `recipes/<id>/recipe.yaml` | the EXAMPLE — the configuration a customer applies (the app, a theme, a flow, …) | `thoryn examples apply <id> --environment <slug>` |
-| `recipes/<id>/e2e/provision.yaml` | the FIXTURES — a throwaway sandbox; a test user (`passwordEnv`) or an email sink only when the journey needs one | the provisioning Action from thoryn-cli: `thoryn provision apply` … `destroy` |
+| `recipes/<id>/provision.yaml` | how to get Thoryn UP AND RUNNING for the example — sandbox, loopback client, demo user, sign-in methods, look-and-feel (the file a customer copies into their own `.thoryn/`) | `thoryn examples apply <id>` converges it first (or `thoryn provision apply` for a customer's own copy) |
+| `recipes/<id>/recipe.yaml` | how to get the EXAMPLE configured — `provision: ./provision.yaml` + the extra steps beyond the provisioning (params, RP asset, `run`/`verify`) | `thoryn examples apply <id>` |
 | `recipes/<id>/e2e/*.spec.ts` | the JOURNEY — the browser walk through the real hosted screens + the recipe's RP | Playwright |
 
-The workflow order is: **provision Action** (sign in from `.thoryn/connection.json`, converge the
-fixture file) → **`examples apply <id> --environment <the provisioned sandbox>`** → **journey** →
-**`thoryn provision destroy`** in the workflow's own `if: always()` step (a composite Action's steps
-run together, so the destroy must be the workflow's, after the journey; the sandbox hard-delete
-cascades the client and the users the run created). Every scenario workflow is on this shape: `sandbox-e2e.yml`, `branded-signin-e2e.yml` and the six
-sign-in-as-fixture-user scenarios (totp / stepup / passkey / magic-link / magic-link-cross-device /
-magic-code, whose fixture adds a `user` with `passwordEnv`) in a sandbox, and `example-e2e.yml`
-(simple-signin, whose fixture is the Mailpit sink as an `emailProvider` on the production plane).
+Every scenario workflow is: `thoryn login --connection .thoryn/connection.json` → `examples update` →
+`examples apply <id> --set envSlug=… --yes` (provisioning first, then the recipe's extras) → journey →
+`examples teardown <id>` (destroys the provisioning child-first; the sandbox hard-delete cascades). The
+demo user's password rides only as the env var the provision file names (`DEMO_USER_PASSWORD`), which the
+workflow also hands to Playwright as `SIGNUP_PASSWORD`. simple-signin runs on the production plane and
+keeps its in-job Mailpit sink as CI plumbing (`workspace email-provider set`/`reset`). `conformance.yml`
+applies, verifies and tears down every recipe with a provision file.
 
 The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
 there is no duplicated setup: the staging/Mailpit config + email capture (`lib/`), the one

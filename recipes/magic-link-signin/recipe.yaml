@@ -1,69 +1,49 @@
-# SSO-3047 (epic SSO-3046) — `magic-link-signin`: the canonical SAME-DEVICE PASSWORDLESS example.
-# Same per-run ephemeral sandbox as sandbox-signin (env + a loopback OAuth client + a sign-in-able
-# user), but the browser journey signs in with NO password: it requests a single-use email sign-in
-# link, captures that email from the sandbox test-inbox, and opens the link ON THE SAME DEVICE that
-# started the sign-in — so the clicking session is authenticated and the OAuth flow resumes to the RP.
-#
-# Why the recipe is just env + app + user (no magic-link-specific action): magic-link is ON BY
-# DEFAULT in Thoryn's hosted login (identity `LoginMethod.DEFAULT_ORDER = [PASSWORD, MAGIC_LINK]`),
-# so a fresh sandbox already offers the "email me a sign-in link" affordance. No login-method policy
-# action and no new scope are needed; the passwordless request + consume live entirely in the e2e.
-#
-# SAME-vs-CROSS device (SSO-57 + SSO-2613): requesting a link sets an `ML_INIT` initiating-device
-# cookie; opening the link on the SAME device (matching cookie) authenticates that session. The
-# OTHER-device variant is the separate `magic-link-cross-device-signin` recipe (SSO-3048).
-#
-# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
-# the interpreter targets later steps at the sandbox; applications.create + identity.registerUser land
-# in it; teardown env.delete hard-deletes the sandbox (cascading the client + user).
-#
-# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
-# the loopback OAuth client — targeted at the environment the guided `examples apply` resolves (a
-# sandbox by default, SSO-2876) or the one `--environment` names. The throwaway sandbox and the
-# sign-in-able user the browser scenario needs are FIXTURES in `e2e/provision.yaml` (converged by
-# `thoryn provision apply`); the previous env.create / identity.registerUser (with a published
-# password) / env.delete steps are gone. The passwordless magic link (same device) behaviour itself is exercised by the journey
-# and the recipe's relying party — it needs no extra tenant configuration from the recipe.
+# magic-link-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user, the sign-in methods); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: magic-link-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in an environment you own, then sign in PASSWORDLESS via a single-use email magic-link opened on the SAME device.
+provision: ./provision.yaml
 
 requires:
   scopes:
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+    - tenant:idp.write
+    - tenant:idp.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the throwaway sandbox environment the provision file creates (fresh per run)"
+    default: "magic-link-{{generate.slug8}}"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Magic-link Sign-in App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected environment.
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

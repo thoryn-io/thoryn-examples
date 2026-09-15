@@ -3,11 +3,11 @@
 Provision a workspace and a public OAuth client, then register a user and sign them in to a protected
 page — the shortest path from "I have a Thoryn account" to "a user just signed in through it".
 
-> **v2 (SSO-3091/3092, epic SSO-3087):** the recipe is now ONLY the client, applied into the workspace
-> your session is bound to (it no longer creates a workspace, a test user, or an SMTP sender). The CI
-> scenario's email sink is a FIXTURE in [`e2e/provision.yaml`](e2e/provision.yaml) — the same
-> `recipe.yaml` a customer applies is what CI applies. Use the production plane so the verification
-> email is really delivered: `thoryn examples apply simple-signin --environment production`.
+> **v3 (SSO-3092, epic SSO-3087):** two files. [`provision.yaml`](provision.yaml) is how to get Thoryn up
+> and running for this example — copy it into your own `.thoryn/` and `thoryn provision apply` it, or let
+> `thoryn examples apply simple-signin` converge it first. [`recipe.yaml`](recipe.yaml) is how to get the example
+> configured: it references the provision file and adds the extra steps beyond the provisioning. Steps
+> about `env.create` / `identity.registerUser` below describe v1.
 
 ## What it provisions
 

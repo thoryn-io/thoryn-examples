@@ -1,70 +1,49 @@
-# SSO-3048 (epic SSO-3046) — `magic-link-cross-device-signin`: the ANOTHER-DEVICE passwordless example,
-# showing the anti-phishing CONTINUATION-CODE property. Same per-run ephemeral sandbox as
-# sandbox-signin (env + a loopback OAuth client + a sign-in-able user), but the browser journey uses
-# TWO devices: device A starts the sign-in and requests a single-use email link; device B (a DIFFERENT
-# browser context, no ML_INIT cookie) opens the link and is DELIBERATELY NOT signed in — instead it
-# shows a short continuation code that must be typed back on device A to complete the sign-in there.
-#
-# Why this is a SEPARATE recipe from magic-link-signin: the same-device flow is seamless (open the
-# link, you're in); the cross-device flow is the SECURITY story — a link opened on another device
-# (forwarded, prefetched by a mail scanner, intercepted) can NEVER complete the sign-in on its own.
-# SSO-2613 (adaptive cross-device magic-link) implements exactly this: the clicking device is never
-# authenticated; a continuation code bound to the INITIATING session (ML_INIT) is redeemed on device A.
-#
-# Why the recipe is just env + app + user (no magic-link-specific action): magic-link is ON BY DEFAULT
-# (identity LoginMethod.DEFAULT_ORDER = [PASSWORD, MAGIC_LINK]); the request + cross-device consume +
-# redeem live entirely in the e2e. No login-method policy action and no new scope are needed.
-#
-# HOW THE INTERPRETER WIRES IT (thoryn-cli RecipeInterpreter): env.create → POST /api/v1/environments;
-# later steps provision into the sandbox; teardown env.delete hard-deletes it (cascading client + user).
-#
-# SSO-3091/3092 (epic SSO-3087): the recipe is now ONLY the example configuration a customer applies —
-# the loopback OAuth client — targeted at the environment the guided `examples apply` resolves (a
-# sandbox by default, SSO-2876) or the one `--environment` names. The throwaway sandbox and the
-# sign-in-able user the browser scenario needs are FIXTURES in `e2e/provision.yaml` (converged by
-# `thoryn provision apply`); the previous env.create / identity.registerUser (with a published
-# password) / env.delete steps are gone. The passwordless magic link (cross-device continuation code) behaviour itself is exercised by the journey
-# and the recipe's relying party — it needs no extra tenant configuration from the recipe.
+# magic-link-cross-device-signin — how to get the example configured: the extra steps beyond the provisioning.
+# SSO-3092 (epic SSO-3087): `provision: ./provision.yaml` gets Thoryn up and running for this example
+# (the sandbox, the loopback client, the demo user, the sign-in methods); `thoryn examples apply`
+# converges it FIRST — the params below feed its placeholders — then runs whatever is listed here (this
+# example needs no extra steps; `run` starts the relying party in ./apps/loopback-rp). Teardown destroys the
+# provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: magic-link-cross-device-signin
-version: 2.0.0
+version: 3.0.0
 summary: Register a public loopback OAuth client in an environment you own, then sign in PASSWORDLESS ACROSS TWO DEVICES — open the link on another device, redeem its continuation code on the initiating device.
+provision: ./provision.yaml
 
 requires:
   scopes:
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
-  minCliVersion: 0.3.7
+    - tenant:users.write
+    - tenant:users.read
+    - tenant:idp.write
+    - tenant:idp.read
+  # `provision:` on a recipe (SSO-3100).
+  minCliVersion: 0.12.0
 
 params:
   - name: workspaceSlug
-    prompt: "Standing workspace slug (the workspace your API key is scoped to; NOT created)"
+    prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
+  - name: envSlug
+    prompt: "Slug for the throwaway sandbox environment the provision file creates (fresh per run)"
+    default: "magic-xdev-{{generate.slug8}}"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Magic-link Cross-device App {{generate.slug8}}"
-
-steps:
-  - id: app
-    action: applications.create
-    description: Register a public loopback authorization-code client in the selected environment.
-    with:
-      displayName: "{{appName}}"
-      clientType: public
-      grantTypes: ["authorization_code"]
-      scopes: ["openid", "profile", "email"]
-      redirectUris: ["http://127.0.0.1/callback"]
-      postLogoutRedirectUris: ["http://127.0.0.1/"]
+  - name: DEMO_USER_PASSWORD
+    prompt: "Password for the demo user (feeds the provision file's passwordEnv; never stored)"
+    default: "Example-{{generate.slug8}}-Pw1!"
+    secret: true
 
 verify:
   - assert: applications.get
-    id: "{{app.clientId}}"
+    id: "{{provision.application.rp.clientId}}"
     expect:
       status: active
-
-teardown:
-  - action: applications.delete
-    id: "{{app.clientId}}"
 
 assets:
   rp: ./apps/loopback-rp

@@ -29,6 +29,14 @@ jobs:
               fail=1
             fi
           done
+          for p in recipes/*/provision.yaml; do
+            python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$p')), open('/tmp/provision.json','w'))"
+            echo "· validating $p"
+            if ! ajv validate --spec=draft2020 -s schema/provision.schema.json -d /tmp/provision.json; then
+              echo "  ✗ $p does not conform to the provisioning schema"
+              fail=1
+            fi
+          done
           exit $fail
 
   # TODO (SSO-2877, Phase 5): run each recipe apply → verify → teardown against staging, so a recipe

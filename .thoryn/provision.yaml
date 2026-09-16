@@ -1,0 +1,130 @@
+# SSO-3113 (epic SSO-3108) — this repo's WORKSPACE-LEVEL provisioning-as-code: the "what I own" half of
+# `.thoryn/`, next to `connection.json` ("who I am"). It is the thoryn-examples sibling of thoryn-cli's
+# `.thoryn/provision.yaml` and declares ONLY what the repository's CI stands on — never an example's own
+# resources (those live in `recipes/<id>/provision.yaml`, the files a customer copies).
+#
+# What this file owns:
+#  - `examples-ci`: the CI machine identity — a confidential `client_credentials` client on the `examples`
+#    workspace's PRODUCTION plane, holding ONLY the scopes converging CI's files needs (see its `scopes`),
+#    and granted `manager` on the fixture sandboxes below — nothing else. It replaces `app-9450eb88-c1f`,
+#    a workspace-wide client minted by hand (SSO-3091) whose reach covered every environment of the
+#    workspace. A founder mints it ONCE (`thoryn provision apply --secret-file …`, cli-v0.15.0+: the secret
+#    leaves through SecretIo, never the receipt); every later apply ADOPTS it by its fixed clientId, so CI
+#    can never delete the identity it signs in with. A client manages its own record by creation
+#    (creator-becomes-manager), so that is not restated as a grant.
+#  - One LONG-LIVED fixture SANDBOX per sandbox-plane recipe, each granting `client:examples-ci manager`.
+#    Sandbox lifecycle settled 2026-09-16 (product owner): creating a resource needs `manager` on its
+#    PARENT, and an environment's parent is the WORKSPACE, so a confined identity structurally cannot
+#    create an environment — and workspace-manager for CI was rejected because it re-opens the exposure
+#    epic SSO-3108 removed. So the sandboxes are founder-provisioned here once and ADOPTED by CI
+#    (`examples apply <id> --set envSlug=ci-<id>`); CI creates and destroys only what lives INSIDE them
+#    (the loopback client, the demo user, the sign-in methods / theme), which containment lets it manage.
+#    One sandbox per recipe, never a shared one: per-environment config (login flow, sign-in methods,
+#    theme) would otherwise leak from one scenario into the next (the SSO-3076 poisoning). Runs never
+#    overlap: every scenario workflow and conformance.yml share the `example-e2e` concurrency group.
+#    Each fixture's `displayName` equals the one its recipe's provision file declares, so adopting it
+#    converges as a no-op instead of flip-flopping the name.
+#
+# NOT here, deliberately: `simple-signin`. Its whole point is the PRODUCTION plane (a real verification
+# email through the workspace's BYO-SMTP, a production-plane client + user, a user suspend) — creating on
+# the production plane needs `manager` on the workspace, and the workspace email provider is a workspace
+# singleton. It cannot run on a sandbox-confined identity; see `.thoryn/README.md` ("Not confined").
+#
+# No secrets live here; none are needed. The receipt (`provision.receipt.json`) is git-ignored.
+apiVersion: thoryn.io/provision/v1
+resources:
+  - kind: application
+    name: examples-ci
+    spec:
+      clientId: examples-ci               # fixed id: `.thoryn/connection.json` signs CI in with it (step 2)
+      displayName: "thoryn-examples CI"
+      clientType: confidential            # client_credentials needs a secret; minted once, via --secret-file
+      grantTypes: [client_credentials]    # no human at the keyboard: no auth-code, no device-code, no refresh
+      # LEAST PRIVILEGE — exactly what converging CI's files needs: THIS file plus the provision files of the
+      # confined recipes below (tests/test_examples_ci_identity.py recomputes this set from those files'
+      # kinds and the CLI actions their journeys run, and fails on any difference).
+      scopes:
+        - tenant:environments.read        # `environment` kind (adopt the fixture) + `env test-emails` (test-inbox capture)
+        - tenant:environments.write       # `environment` kind (converge the adopted fixture's shape)
+        - tenant:applications.read        # `application` kind (the loopback RP; this identity's own record)
+        - tenant:applications.write       # `application` kind (create / destroy the loopback RP inside the sandbox)
+        - tenant:users.read               # `user` kind (the demo account)
+        - tenant:users.write              # `user` kind (create / destroy the demo account)
+        - tenant:idp.read                 # `loginTheme` / `loginMethods` kinds (plan reads before apply writes)
+        - tenant:idp.write                # `loginTheme` / `loginMethods` kinds + `login-methods set` / `login-flow set` in journeys
+        - tenant:access.read              # the `grants:` blocks below (list live grants to diff)
+        - tenant:access.write             # the `grants:` blocks below (converge them)
+      # NOT held: tenant:email.* (only simple-signin's production-plane BYO-SMTP needs it) and
+      # tenant:federation.* (no recipe declares a federationMember).
+
+  - kind: environment
+    name: branded-signin
+    spec:
+      slug: ci-branded-signin
+      displayName: "branded-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: magic-code-signin
+    spec:
+      slug: ci-magic-code-signin
+      displayName: "magic-code-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: magic-link-cross-device-signin
+    spec:
+      slug: ci-magic-link-cross-device-signin
+      displayName: "magic-link-cross-device-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: magic-link-signin
+    spec:
+      slug: ci-magic-link-signin
+      displayName: "magic-link-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: passkey-signin
+    spec:
+      slug: ci-passkey-signin
+      displayName: "passkey-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: sandbox-signin
+    spec:
+      slug: ci-sandbox-signin
+      displayName: "sandbox-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: stepup-signin
+    spec:
+      slug: ci-stepup-signin
+      displayName: "stepup-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: totp-signin
+    spec:
+      slug: ci-totp-signin
+      displayName: "totp-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager

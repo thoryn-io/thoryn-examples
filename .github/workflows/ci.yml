@@ -29,7 +29,8 @@ jobs:
               fail=1
             fi
           done
-          for p in recipes/*/provision.yaml; do
+          # SSO-3113 — the workspace-level provisioning file (examples-ci + its fixture sandboxes) too.
+          for p in recipes/*/provision.yaml .thoryn/provision.yaml; do
             python3 -c "import yaml,json; json.dump(yaml.safe_load(open('$p')), open('/tmp/provision.json','w'))"
             echo "· validating $p"
             if ! ajv validate --spec=draft2020 -s schema/provision.schema.json -d /tmp/provision.json; then
@@ -38,6 +39,22 @@ jobs:
             fi
           done
           exit $fail
+
+  ci-identity-confinement:
+    # SSO-3113 (epic SSO-3108) — pins the least-privilege CI identity `examples-ci`: its scopes are exactly
+    # what converging CI's files needs, its reach is exactly manager on one fixture sandbox per confined
+    # recipe, and every recipe is confined or explicitly not. See .thoryn/README.md.
+    name: CI identity is least-privilege
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: python -m pip install --quiet "pyyaml==6.0.2"
+      - name: Run the confinement conformance tests
+        run: python -m unittest discover -s tests -v
 
   # TODO (SSO-2877, Phase 5): run each recipe apply → verify → teardown against staging, so a recipe
   # that drifts from the real product fails here and blocks a catalog release. Tracked in the epic.

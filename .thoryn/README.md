@@ -80,7 +80,7 @@ simple-signin exercises the **production plane**: a production-plane client and 
 workspace's BYO-SMTP email provider (`workspace email-provider set`/`reset`, for a real verification
 email into the in-job Mailpit), and a user suspend. Creating on the production plane needs `manager` on
 the workspace, so a sandbox-confined identity cannot run it. It stays off `examples-ci`. The options are
-listed on SSO-3113 and its linked follow-up.
+listed on SSO-3131 (follow-up of SSO-3113).
 
 ### Founder bootstrap (run once, cli-v0.15.0 or newer)
 

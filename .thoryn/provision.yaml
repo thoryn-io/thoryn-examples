@@ -28,7 +28,7 @@
 # NOT here, deliberately: `simple-signin`. Its whole point is the PRODUCTION plane (a real verification
 # email through the workspace's BYO-SMTP, a production-plane client + user, a user suspend) — creating on
 # the production plane needs `manager` on the workspace, and the workspace email provider is a workspace
-# singleton. It cannot run on a sandbox-confined identity; see `.thoryn/README.md` ("Not confined").
+# singleton. It cannot run on a sandbox-confined identity; see `.thoryn/README.md` ("Not confined") and SSO-3131.
 #
 # No secrets live here; none are needed. The receipt (`provision.receipt.json`) is git-ignored.
 apiVersion: thoryn.io/provision/v1

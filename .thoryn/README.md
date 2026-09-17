@@ -63,14 +63,14 @@ fixture's `displayName` matches its recipe's, so adopting it changes nothing.
 | `tenant:environments.read` | `environment` kind (adopt the fixture) + `env test-emails` (sandbox test-inbox capture in journeys) |
 | `tenant:environments.write` | `environment` kind (converge the adopted fixture's shape) |
 | `tenant:applications.read` / `.write` | `application` kind: the loopback RP inside the sandbox; the identity's own record |
-| `tenant:users.read` / `.write` | `user` kind: the demo account; `users suspend` in simple-signin's suspended-login case (inside its sandbox once reworked) |
+| `tenant:users.read` / `.write` | `user` kind: the demo account; `users suspend` in simple-signin's suspended-login case (inside `ci-simple-signin`) |
 | `tenant:idp.read` / `.write` | `loginTheme` / `loginMethods` kinds + `login-methods set` / `login-flow set` in the magic-code / passkey journeys |
 | `tenant:access.read` / `.write` | the `grants:` blocks in this file (read to diff, write to converge) |
 
 **Not held:** `tenant:email.*` and `tenant:federation.*`. No recipe declares an `emailProvider` or a
 federation member. Every scenario captures mail from its sandbox's test-inbox (`env test-emails`,
-covered by `tenant:environments.read`). The workspace BYO-SMTP that `simple-signin` still uses is
-production-plane reach this identity must never have; see below. **Scopes are the ceiling, the grant is
+covered by `tenant:environments.read`); `simple-signin` too since SSO-3131. The workspace BYO-SMTP is
+production-plane reach this identity must never have. **Scopes are the ceiling, the grant is
 the gate** (ADR `2026-09-15-platform-resource-authorization-on-fga.md` §4): a call on an object
 `examples-ci` does not manage answers `404` whatever scopes the token carries.
 
@@ -92,25 +92,20 @@ answer 404. By design a foreign and a nonexistent environment are the same 404 f
 the id is never guessed. `workspace list` is not asserted: it is an `openid`-gated `/account` surface a
 `client_credentials` identity cannot call; the workspace is pinned by the token's `tnt` claim instead.
 
-### `simple-signin`: fixture declared, move blocked on SSO-3135
+### `simple-signin`: moved into its fixture (SSO-3131)
 
-Settled 2026-09-17 (SSO-3131): `simple-signin` moves into its own fixture sandbox `ci-simple-signin`, so
-**one** confined identity covers all 9 recipes and `app-9450eb88-c1f` can be retired. The fixture is
-already declared, so the founder's single apply provisions it.
+Settled 2026-09-17 (SSO-3131): `simple-signin` runs in its own fixture sandbox `ci-simple-signin`, so
+**one** confined identity covers all 9 recipes and `app-9450eb88-c1f` could be retired.
 
-The move itself is **blocked on a product gap, SSO-3135**. `simple-signin` currently captures three
-emails through the workspace BYO-SMTP → in-job Mailpit: verification, password reset, and account unlock.
-In a sandbox, identity-service suppresses all three, but it captures only verification (SSO-3026) and
-password reset (SSO-3079) to the test-inbox. The account-unlock email is suppressed and **not captured**
-(`AccountUnlockService` never calls `SandboxEmailCaptureService`), so the journey's lockout → unlock case
-cannot pass in a sandbox. Keeping workspace SMTP or dropping that case would change the product boundary
-or what the demo shows, so neither is done. `simple-signin` therefore still targets the production plane,
-which the confined identity **cannot reach by design** (no `tenant:email.*` scope, not `manager` of the
-workspace) and the legacy client that used to carry it no longer exists (SSO-3164). Consequences, on
-purpose and until SSO-3131 lands: `example-e2e.yml` is expected red at `workspace email-provider set`,
-and `conformance.yml` skips the recipe with a warning instead of faking a pass. Do **not** widen
-`examples-ci` or add a second identity to paper over this. The conformance test allows exactly this one
-pending recipe and fails once it has moved but is still listed.
+The move waited on a product gap, SSO-3135. `simple-signin` used to capture three emails through the
+workspace BYO-SMTP → an in-job Mailpit reached over a public TCP tunnel: verification, password reset,
+and account unlock. A sandbox suppresses all three; it captured verification (SSO-3026) and password
+reset (SSO-3079) to the test-inbox, but not the account-unlock email, so the lockout → unlock case could
+not pass in a sandbox. SSO-3135 made the sandbox capture it too (channel `account_unlock`). The journey
+now reads all three through `thoryn env test-emails` (`e2e/lib/test-inbox.mjs`), and `example-e2e.yml`
+has no Mailpit, no tunnel, no `NGROK_AUTHTOKEN` and no `workspace email-provider set`.
+`PENDING_SANDBOX_REWORK` in the conformance test is empty; a recipe without a sandbox now fails both the
+test and `conformance.yml`.
 
 ### Founder bootstrap (run once, cli-v0.15.0 or newer)
 

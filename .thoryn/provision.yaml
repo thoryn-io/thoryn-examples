@@ -25,12 +25,10 @@
 #    Each fixture's `displayName` equals the one its recipe's provision file declares, so adopting it
 #    converges as a no-op instead of flip-flopping the name.
 #
-# `ci-simple-signin` is declared too (settled 2026-09-17, SSO-3131: simple-signin moves onto a sandbox so
+# `ci-simple-signin` is declared too (settled 2026-09-17, SSO-3131: simple-signin moved onto a sandbox so
 # ONE confined identity covers all 9 recipes), so the founder's single apply provisions every fixture. The
-# recipe itself still runs on the PRODUCTION plane until SSO-3135 lands: a sandbox suppresses the
-# account-unlock email WITHOUT capturing it to the test-inbox, and simple-signin's journey includes the
-# lockout → unlock-email case. Until then simple-signin still targets the production plane, which this confined
-# identity cannot reach — its workflow is expected red and conformance skips it (see .thoryn/README.md).
+# move needed SSO-3135 (a sandbox now captures the account-unlock email to the test-inbox, channel
+# `account_unlock`), so simple-signin's lockout → unlock case reads its mail like every other recipe.
 #
 # No secrets live here; none are needed. The receipt (`provision.receipt.json`) is git-ignored.
 apiVersion: thoryn.io/provision/v1
@@ -57,9 +55,9 @@ resources:
         - tenant:access.read              # the `grants:` blocks below (list live grants to diff)
         - tenant:access.write             # the `grants:` blocks below (converge them)
       # NOT held: tenant:email.* — no recipe converges an `emailProvider`; every scenario (simple-signin too,
-      # once SSO-3135 lets it move into its sandbox) captures mail from the sandbox test-inbox, which is
-      # `env test-emails` (environments.read). The workspace BYO-SMTP simple-signin uses today is exactly the
-      # production-plane reach this identity must not have. tenant:federation.*: no federationMember kind.
+      # since SSO-3131) captures mail from the sandbox test-inbox, which is `env test-emails`
+      # (environments.read). The workspace BYO-SMTP is exactly the production-plane reach this identity must
+      # not have. tenant:federation.*: no federationMember kind.
 
   - kind: environment
     name: branded-signin

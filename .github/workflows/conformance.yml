@@ -15,9 +15,9 @@ name: conformance
 # config (login flow, sign-in methods, theme) cannot leak from one recipe into the next (SSO-3076). Runs
 # never overlap: this workflow and every scenario workflow share the `example-e2e` concurrency group.
 #
-# A recipe with no sandbox yet (today: simple-signin, blocked on SSO-3135 → moves to `ci-simple-signin`
-# under SSO-3131) runs on the PRODUCTION plane, which `examples-ci` cannot reach by design — it is
-# SKIPPED with a warning, never faked green. The ONLY injected secret is THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET.
+# Every recipe declares a sandbox (simple-signin moved into `ci-simple-signin` under SSO-3131). A recipe
+# WITHOUT one would target the PRODUCTION plane, which `examples-ci` cannot reach by design — it FAILS the
+# run, never skipped or faked green. The ONLY injected secret is THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET.
 
 on:
   workflow_dispatch:
@@ -128,10 +128,11 @@ jobs:
             [ -f "$d/provision.yaml" ] || continue
             [ -z "$ONLY" ] || [ "$ONLY" = "$id" ] || continue
             if ! grep -q 'kind: environment' "$d/provision.yaml"; then
-              # No sandbox in the recipe yet ⇒ it runs on the production plane, which the confined identity
-              # cannot reach by design (tests/test_examples_ci_identity.py PENDING_SANDBOX_REWORK pins the
-              # allowed set). Skip loudly; it joins its fixture `ci-$id` when its gap closes (SSO-3131 / SSO-3135).
-              echo "::warning::$id has no sandbox yet — it runs on the production plane, out of examples-ci's reach; skipped until it moves into fixture ci-$id (SSO-3131, blocked on SSO-3135)"
+              # No sandbox in the recipe ⇒ it would run on the production plane, which the confined identity
+              # cannot reach by design. tests/test_examples_ci_identity.py rejects this at PR time; fail loudly
+              # here too rather than skip (SSO-3131 moved the last one, simple-signin, into ci-simple-signin).
+              echo "::error::$id declares no sandbox environment — examples-ci can only run a recipe inside its fixture ci-$id"
+              fail=1
               continue
             fi
             echo "::group::$id (fixture sandbox ci-$id)"

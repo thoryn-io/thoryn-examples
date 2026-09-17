@@ -24,9 +24,9 @@ inside it, then the recipe's extras) → journey → `examples teardown <id>` (d
 created inside the fixture, child-first; an adopted sandbox is never deleted — a confined identity cannot
 create one, see [`.thoryn/README.md`](../.thoryn/README.md)). The demo user's password rides only as the
 env var the provision file names (`DEMO_USER_PASSWORD`), which the workflow also hands to Playwright as
-`SIGNUP_PASSWORD`. simple-signin still targets the production plane with its in-job Mailpit sink
-(`workspace email-provider set`/`reset`) and is expected red until SSO-3131 moves it into
-`ci-simple-signin` (blocked on SSO-3135). `conformance.yml` applies, verifies and tears down every
+`SIGNUP_PASSWORD`. simple-signin runs in `ci-simple-signin` like the rest (SSO-3131) and reads its
+verification, password-reset and account-unlock emails from the sandbox test-inbox
+(`lib/test-inbox.mjs`). `conformance.yml` applies, verifies and tears down every
 sandbox recipe inside its fixture and first asserts the identity is confined to exactly those fixtures.
 
 The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
@@ -63,6 +63,11 @@ injection, no stubbing.
 > run (no user-delete recipe action — SSO-2943).
 
 ## The mail sink is ephemeral and lives in the CI job — no external service, no VM
+
+> **Superseded (SSO-3131).** No workflow uses the Mailpit sink any more: every journey, `simple-signin`
+> included, runs inside a sandbox and reads its mail from the sandbox test-inbox through
+> `thoryn env test-emails` (`lib/test-inbox.mjs`). This section, `lib/mailbox.ts` and the
+> `NGROK_AUTHTOKEN` / `SINK_TUNNEL` settings are kept for history only.
 
 There is **no Mailpit server to run and no mail account to buy** (product-owner
 decision). The workflow itself:

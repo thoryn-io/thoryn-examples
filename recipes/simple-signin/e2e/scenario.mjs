@@ -9,13 +9,13 @@
 
 /** Step titles, keyed so the spec can reference them readably. */
 export const STEPS = {
-  hostedLogin: "RP → “Sign in with Thoryn” → the tenant hosted login renders via the workspace hub",
+  hostedLogin: "RP → “Sign in with Thoryn” → the tenant hosted login renders via the sandbox issuer",
   register: "Follow the self-service sign-up path and register a brand-new end user",
-  capture: "Capture the REAL verification email from the in-job Mailpit sink",
+  capture: "Capture the REAL verification email from the sandbox test-inbox",
   verify: "Follow the captured verify-email link → “Your email is verified”",
   signin: "Return to the RP, sign in with the verified creds → land on /protected",
   forgot: "Forgot password: on the hosted login, follow “Forgot your password?” → request a reset",
-  captureReset: "Capture the REAL password-reset email from the in-job Mailpit sink",
+  captureReset: "Capture the REAL password-reset email from the sandbox test-inbox",
   reset: "Follow the captured reset link → set a NEW password → “password updated”",
   signinNew: "Sign in with the NEW password → land back on /protected",
 };
@@ -27,11 +27,11 @@ export const scenario = {
     "Self-service sign-up → verify email → sign in through the recipe's loopback RP (Path B)",
   summary:
     "Drives the `simple-signin` recipe's real loopback relying party against the staging SaaS " +
-    "in a real browser. A brand-new end user signs up on the provisioned workspace's hosted " +
-    "login; identity sends a genuine verification email over the tenant's BYO-SMTP, captured " +
-    "from an ephemeral in-job Mailpit sink (no DB injection, no stubbing); the captured link " +
+    "in a real browser, inside the recipe's sandbox environment (SSO-3131). A brand-new end user signs up on " +
+    "the hosted login; identity generates a genuine verification email, which the sandbox captures to its " +
+    "test-inbox and the harness reads back via `thoryn env test-emails` (no DB injection, no stubbing); the captured link " +
     "verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back " +
-    "to the RP's protected page, which renders the ID-token claims. It then exercises self-service PASSWORD RESET (SSO-3078): from the hosted login Forgot-your-password link the user requests a reset, the genuine reset email is captured from the same Mailpit sink, a new password is set on the reset page, and the user signs back in with it.",
+    "to the RP's protected page, which renders the ID-token claims. It then exercises self-service PASSWORD RESET (SSO-3078): from the hosted login Forgot-your-password link the user requests a reset, the genuine reset email is captured from the same sandbox test-inbox, a new password is set on the reset page, and the user signs back in with it.",
   steps: [
     { key: "hostedLogin", title: STEPS.hostedLogin },
     { key: "register", title: STEPS.register },

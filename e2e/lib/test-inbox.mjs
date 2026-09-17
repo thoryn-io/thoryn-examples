@@ -19,7 +19,7 @@
 // body-parse are kept as defensive fallbacks.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { extractVerificationLink } from "./verification-link.mjs";
+import { extractVerificationLink, extractUnlockLink } from "./verification-link.mjs";
 
 const execFileP = promisify(execFile);
 
@@ -248,4 +248,45 @@ export async function findResetLinkViaInbox(cfg, recipient) {
   const body = `${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`;
   const m = body.match(/https?:\/\/[^\s"'<>]+\/password-reset\?token=[A-Za-z0-9_-]+/);
   return m ? m[0] : null;
+}
+
+// SSO-3135: the sandbox-captured account-unlock link (AccountUnlockService → /account/unlock?token=...).
+const isUnlockLink = (s) => typeof s === "string" && /\/account\/unlock\?token=/.test(s);
+
+/**
+ * SSO-3131 / SSO-3135 — poll a sandbox's test inbox for the newest ACCOUNT-UNLOCK email to [recipient] and
+ * return its unlock link (the captured `actionLink`, `<base>/account/unlock?token=...`), or null if it hasn't
+ * been captured yet. Wrap in `expect.poll`. Same CLI path as findResetLinkViaInbox; only the channel
+ * (`account_unlock`) and the link shape differ. A sandbox suppresses the real SMTP send and captures the
+ * unlock link here (SSO-3135), so this is a genuine, non-faked capture of the email.
+ *
+ * @param {TestInboxConfig} cfg
+ * @param {string} recipient
+ * @returns {Promise<string | null>}
+ */
+export async function findUnlockLinkViaInbox(cfg, recipient) {
+  if (!cfg.jarPath || !cfg.envSlug) {
+    throw new Error(
+      "test-inbox capture needs THORYN_JAR + SANDBOX_ENV_SLUG (the sandbox journey runs the CLI against the fixture sandbox)",
+    );
+  }
+  const list = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "list",
+    "--env", cfg.envSlug,
+    "--to", recipient,
+    "--channel", "account_unlock",
+    "--limit", "50",
+    "--output", "json",
+  ]);
+  const emails = emailsOf(list);
+  if (emails.length === 0) return null;
+  const newest = emails[0];
+  if (isUnlockLink(newest?.actionLink)) return newest.actionLink;
+  const id = newest?.id;
+  if (!id) return null;
+  const rec = await runCliJson(cfg.jarPath, [
+    "env", "test-emails", "get", String(id), "--env", cfg.envSlug, "--output", "json",
+  ]);
+  if (isUnlockLink(rec?.actionLink)) return rec.actionLink;
+  return extractUnlockLink(`${rec?.bodyHtml ?? ""}\n${rec?.body ?? ""}`);
 }

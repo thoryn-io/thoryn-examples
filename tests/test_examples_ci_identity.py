@@ -40,12 +40,10 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Recipes whose move INTO their fixture sandbox is blocked on a recorded product gap. Every recipe gets a
 # fixture (SSO-3131 settled: one confined identity covers all 9); an entry here only tolerates the recipe
-# still running on the production plane (on the legacy identity) until its gap closes. Never add an entry
-# without a gap ticket.
-PENDING_SANDBOX_REWORK = {
-    "simple-signin": "SSO-3135 — a sandbox suppresses the account-unlock email without capturing it to the "
-    "test-inbox, and the journey's lockout case needs that email",
-}
+# still running on the production plane until its gap closes. Never add an entry without a gap ticket.
+# Empty since SSO-3131: simple-signin, the last one, moved into `ci-simple-signin` once SSO-3135 made the sandbox
+# capture the account-unlock email to the test-inbox.
+PENDING_SANDBOX_REWORK = {}
 
 # The product-api scope AREA a provisioning kind is managed through (`tenant:<area>.<read|write>`) —
 # the same mapping thoryn-cli's conformance test uses.

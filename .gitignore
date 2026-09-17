@@ -2,3 +2,10 @@ node_modules/
 playwright-report/
 test-results/
 .auth/
+
+# SSO-3113 — provisioning receipts (`thoryn provision apply` writes <name>.receipt.json next to the file;
+# secret-free, but per-account state like Terraform state) and `--secret-file` output (a one-time client
+# secret must never reach a commit).
+.thoryn/*.receipt.json
+*.secret
+__pycache__/

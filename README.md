@@ -44,6 +44,9 @@ recipes/<id>/E2E_RESULTS.md        # generated E2E coverage + latest-result repo
 package.json                       # root npm package — shared E2E deps (single node_modules)
 e2e/                               # shared E2E harness (config, Mailpit capture, results reporter)
 .github/workflows/ci.yml           # validates every recipe against the schema
+.thoryn/connection.json            # CI's connection contract ("who I am")
+.thoryn/provision.yaml             # CI's workspace-level provisioning: examples-ci + fixture sandboxes (SSO-3113)
+tests/                             # conformance tests pinning examples-ci to least privilege
 ```
 
 ## What a recipe looks like
@@ -190,6 +193,16 @@ teardown references only `{{env.id}}`.
 > issuer** resolves. Until then the workflow is `workflow_dispatch`-only and fails early.
 
 ## CI provisioning setup _(operator-run, one-time)_
+
+> **Superseded (SSO-3091, SSO-3113).** CI no longer uses a hand-minted `THORYN_API_KEY` or a
+> `ci-conformance` workspace. It signs in from [`.thoryn/connection.json`](.thoryn/connection.json)
+> against the `examples` workspace, as the **least-privilege identity `examples-ci`** declared in
+> [`.thoryn/provision.yaml`](.thoryn/provision.yaml). That identity is `manager` of one long-lived fixture
+> sandbox per recipe and of nothing else. A founder mints it once with
+> `thoryn provision apply --secret-file …` (its secret: `THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET`). The
+> founder sequence, the scope set with a reason for each scope, and why `simple-signin`'s move into its
+> sandbox waits on SSO-3135 are in [`.thoryn/README.md`](.thoryn/README.md). The text below is kept for
+> history only.
 
 Both CI suites authenticate as a real customer with a tenant-scoped `client_credentials` API key
 against a **standing workspace on staging that the operator owns** (the model proven in `thoryn-cli`).

@@ -11,7 +11,8 @@ thoryn login --connection .thoryn/connection.json
 
 The CLI derives the per-tenant issuer (`https://examples.hub.<env>`), the gateway and the requested
 scopes **from this file**. It is data, not code: the secret is NEVER here, only the *name* of the env
-var that carries it (`auth.secretEnv` = `THORYN_EXAMPLES_CI_CLIENT_SECRET`).
+var that carries it (`auth.secretEnv` = `THORYN_EXAMPLES_CI_CLIENT_SECRET` for the legacy client; the step-2 switch to
+`examples-ci` changes it to `THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET`).
 
 **"What I own" is per example, and it is the example's own file.** Each example's
 `recipes/<id>/provision.yaml` is how to get Thoryn up and running for it (sandbox, loopback client, demo
@@ -20,43 +21,114 @@ recipe (`recipes/<id>/recipe.yaml`) references it and adds only the extra steps 
 `thoryn examples apply` converges the provision file first, and `examples teardown` destroys it. CI applies
 exactly what a customer applies. See [`e2e/README.md`](../e2e/README.md).
 
-## One-time bootstrap (operator, run once)
+## The least-privilege CI identity `examples-ci` (SSO-3113, epic SSO-3108)
 
-The machine client this contract names does not exist until an operator mints it once, through the
-customer plane — no DB seed, no shortcut:
+`provision.yaml` (this folder) is the repository's **workspace-level** "what I own" file. It declares only
+what CI stands on — never an example's own resources:
 
-1. Sign in to the `examples` workspace interactively (browser OIDC):
-   `thoryn login --issuer https://hub.stg.thoryn.org` then `thoryn workspace switch examples`.
-2. Mint a confidential `client_credentials` client granting exactly the scopes listed in
-   `connection.json` — the full CI set (environments + applications + users + email + idp, read and
-   write): sandbox-signin needs environments/applications, simple-signin adds users (suspend case) and
-   email (the Mailpit sink fixture), branded-signin adds idp (the login theme). The hub answers
-   `invalid_scope` to a client-credentials request that exceeds the client's grant, so the client's
-   grant (`thoryn clients get <id>`) must always be a superset of this list. Your own session must hold
-   every scope you delegate, so sign in with them (`thoryn login --issuer … --scope "openid offline_access tenant:…"`);
-   `--redirect-uri` is required by `clients create` even for a client-credentials client (never used):
-   ```bash
-   thoryn clients create --display-name "thoryn-examples CI" \
-     --client-type confidential --grant-type client_credentials --redirect-uri http://127.0.0.1/unused \
-     --scope tenant:environments.write --scope tenant:environments.read \
-     --scope tenant:applications.write --scope tenant:applications.read \
-     --scope tenant:users.write --scope tenant:users.read \
-     --scope tenant:email.write --scope tenant:email.read \
-     --scope tenant:idp.write --scope tenant:idp.read \
-     --secret-file ci.secret --output json
-   ```
-   (the secret lands only in `ci.secret`, via the CLI's `SecretIo` channel — never stdout/argv).
-3. **Paste the printed `clientId`** into `auth.clientId` (it ships as `REPLACE_AFTER_BOOTSTRAP`) and commit.
-4. **Set the GitHub Actions secret** `THORYN_EXAMPLES_CI_CLIENT_SECRET` to the contents of `ci.secret`,
-   then `shred ci.secret`.
+| Resource | What it is |
+|---|---|
+| `application/examples-ci` | the CI machine identity: confidential, `client_credentials` only, fixed `clientId: examples-ci`, on the `examples` workspace's production plane |
+| `environment/<recipe-id>` × 9 | one **long-lived fixture sandbox** per recipe (all 9, `simple-signin` included), slug `ci-<recipe-id>`, each with `grants: [{subject: "client:examples-ci", relation: manager}]` |
 
-The legacy `THORYN_API_KEY` (`<client-id>:<client-secret>`) secret and the imperative
-`login --client-credentials` block it fed are retired workflow by workflow as each scenario moves to
-the contract (SSO-3091); delete the secret once the last one has.
+It replaces `app-9450eb88-c1f`, the client minted by hand under the old bootstrap (SSO-3091), whose ten
+workspace-wide scopes reached every environment and the production plane of the workspace.
+
+### Why the sandboxes are fixtures, not per-run throwaways
+
+Settled by the product owner on 2026-09-16. To create a resource you need `manager` on its **parent**, and
+the parent of an environment is the **workspace**. A confined identity is `manager` of specific sandboxes,
+not of the workspace, so it **cannot create an environment**. Making CI a workspace manager was rejected:
+it would give CI back the reach epic SSO-3108 removed. So:
+
+- a founder creates the fixture sandboxes **once**, by applying this file;
+- CI **adopts** them (`thoryn examples apply <id> --set envSlug=ci-<id>`): the recipe's `environment`
+  resource matches the fixture by slug, and adopted resources are never deleted by `teardown`;
+- CI **creates and destroys only what lives inside** a sandbox (the loopback client, the demo user, the
+  sign-in methods / theme). Being `manager` of the sandbox lets it manage everything inside it.
+
+There is one sandbox per recipe, never a shared one. Per-environment settings (login flow, sign-in
+methods, theme) would otherwise carry over from one scenario to the next (the SSO-3076 bug). Runs never
+overlap: every scenario workflow and `conformance.yml` share the `example-e2e` concurrency group. Each
+fixture's `displayName` matches its recipe's, so adopting it changes nothing.
+
+### Scopes — exactly what converging CI's files needs
+
+| Scope | Why |
+|---|---|
+| `tenant:environments.read` | `environment` kind (adopt the fixture) + `env test-emails` (sandbox test-inbox capture in journeys) |
+| `tenant:environments.write` | `environment` kind (converge the adopted fixture's shape) |
+| `tenant:applications.read` / `.write` | `application` kind: the loopback RP inside the sandbox; the identity's own record |
+| `tenant:users.read` / `.write` | `user` kind: the demo account; `users suspend` in simple-signin's suspended-login case (inside its sandbox once reworked) |
+| `tenant:idp.read` / `.write` | `loginTheme` / `loginMethods` kinds + `login-methods set` / `login-flow set` in the magic-code / passkey journeys |
+| `tenant:access.read` / `.write` | the `grants:` blocks in this file (read to diff, write to converge) |
+
+**Not held:** `tenant:email.*` and `tenant:federation.*`. No recipe declares an `emailProvider` or a
+federation member. Every scenario captures mail from its sandbox's test-inbox (`env test-emails`,
+covered by `tenant:environments.read`). The workspace BYO-SMTP that `simple-signin` still uses is
+production-plane reach this identity must never have; see below. **Scopes are the ceiling, the grant is
+the gate** (ADR `2026-09-15-platform-resource-authorization-on-fga.md` §4): a call on an object
+`examples-ci` does not manage answers `404` whatever scopes the token carries.
+
+`tests/test_examples_ci_identity.py` (CI job *CI identity is least-privilege*) recomputes the scope set
+from the kinds in this file and in every recipe's provision file, plus the CLI actions their journeys
+run, and fails on any difference. It also checks that the identity's only reach is `manager` on exactly
+one fixture per recipe, and that no recipe file grants anything. Every recipe must run in its fixture
+sandbox unless its move is blocked on a recorded product gap (`PENDING_SANDBOX_REWORK`), and only such a
+recipe may still drive the workspace email provider. Once `connection.json` names `examples-ci`, it also
+checks that `connection.json` requests no scope beyond the ones declared here.
+
+### `simple-signin`: fixture declared, move blocked on SSO-3135
+
+Settled 2026-09-17 (SSO-3131): `simple-signin` moves into its own fixture sandbox `ci-simple-signin`, so
+**one** confined identity covers all 9 recipes and `app-9450eb88-c1f` can be retired. The fixture is
+already declared, so the founder's single apply provisions it.
+
+The move itself is **blocked on a product gap, SSO-3135**. `simple-signin` currently captures three
+emails through the workspace BYO-SMTP → in-job Mailpit: verification, password reset, and account unlock.
+In a sandbox, identity-service suppresses all three, but it captures only verification (SSO-3026) and
+password reset (SSO-3079) to the test-inbox. The account-unlock email is suppressed and **not captured**
+(`AccountUnlockService` never calls `SandboxEmailCaptureService`), so the journey's lockout → unlock case
+cannot pass in a sandbox. Keeping workspace SMTP or dropping that case would change the product boundary
+or what the demo shows, so neither is done. Until SSO-3135 ships, `simple-signin` runs as before on the
+production plane, signed in as the legacy client. The conformance test allows exactly this one pending
+recipe and fails once it has moved but is still listed.
+
+### Founder bootstrap (run once, cli-v0.15.0 or newer)
+
+```bash
+# 1. Sign in to the examples workspace as a workspace admin, requesting every scope the file grants.
+#    The hub only lets you grant scopes your own session holds (SSO-1028's intersection rule).
+#    `thoryn-cli` is the platform login client homed at the default tenant; it resolves cross-tenant, so
+#    `--workspace examples` signs you straight into `examples`. No `workspace switch` is needed (it was
+#    broken until SSO-3121).
+thoryn login --workspace examples --issuer https://hub.stg.thoryn.org --client-id thoryn-cli \
+  --scope "openid offline_access tenant:environments.read tenant:environments.write tenant:applications.read tenant:applications.write tenant:users.read tenant:users.write tenant:idp.read tenant:idp.write tenant:access.read tenant:access.write"
+
+# 2. Converge the file: creates examples-ci (its ONE-TIME secret goes only to ./examples-ci.secret, via
+#    SecretIo: never stdout, argv or the receipt), the 9 fixture sandboxes, and their grants
+#    (converged in a second pass, after every resource exists).
+thoryn provision plan  --file .thoryn/provision.yaml
+thoryn provision apply --file .thoryn/provision.yaml --secret-file ./examples-ci.secret
+
+# 3. Hand the secret to CI and destroy the local copy.
+gh secret set THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET --repo thoryn-io/thoryn-examples < ./examples-ci.secret && rm -f ./examples-ci.secret
+```
+
+`*.secret` and `.thoryn/*.receipt.json` are git-ignored. After this, the step-2 PR switches
+`connection.json` to `examples-ci`. Every later `apply` of this file **adopts** `examples-ci` by its
+fixed id, so CI can never delete the identity it signs in with. Rotate the secret with
+`thoryn clients rotate-secret` (24h graceful overlap).
+
+The confined identity has its **own** secret, `THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET`, separate from
+the legacy `THORYN_EXAMPLES_CI_CLIENT_SECRET`, so the old and new identities can run side by side with no
+outage window. The step-2 PR switches `connection.json`'s `auth.secretEnv` and the workflows to the new
+name. The old secret is deleted only once `app-9450eb88-c1f` is retired.
 
 ## Confinement
 
-The credential is confined three ways, all server-side: the client's `tnt` claim locks it to the
-`examples` workspace (cross-tenant → 404); the hub mints only the requested scopes; and both the
-provisioning file's `kind` allowlist and the recipe's `action` allowlist bound what a run can express.
-Rotate the secret with `thoryn clients rotate-secret` (24h graceful overlap).
+The credential is confined four ways, all server-side: the client's `tnt` claim locks it to the
+`examples` workspace (cross-tenant → 404); the hub mints only the requested scopes; the provisioning
+file's `kind` allowlist and the recipe's `action` allowlist bound what a run can express; and (the layer
+epic SSO-3108 adds) `examples-ci` is `manager` of its fixture sandboxes only, so product-api answers 404
+to anything else.

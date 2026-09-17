@@ -61,6 +61,32 @@
               "pattern": "([Pp]assword|[Ss]ecret|[Tt]oken)$"
             }
           }
+        },
+        "grants": {
+          "description": "SSO-3113 (epic SSO-3108) \u2014 least-privilege ACCESS GRANTS on this resource, converged with it by `thoryn provision apply` (cli-v0.15.0+: in a second pass after every resource exists, so a grant may name a client declared anywhere in the file). A listed grant that is missing is created; a grant the file itself created and no longer lists is revoked; grants the file did not create are never touched. The OBJECT is implicit (the resource itself). Omit to leave the object's grants unmanaged. Needs `tenant:access.read` + `tenant:access.write`. Mirrors thoryn-cli's bundled provision.schema.json.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "subject",
+              "relation"
+            ],
+            "properties": {
+              "subject": {
+                "description": "`member:<sub>` or `client:<clientId>`.",
+                "type": "string",
+                "pattern": "^(member|client):[^\\s]+$"
+              },
+              "relation": {
+                "enum": [
+                  "manager",
+                  "viewer"
+                ]
+              }
+            }
+          }
         }
       },
       "allOf": [

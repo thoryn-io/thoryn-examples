@@ -6,19 +6,19 @@
   },
   "auth": {
     "method": "client_credentials",
-    "clientId": "app-9450eb88-c1f",
-    "secretEnv": "THORYN_EXAMPLES_CI_CLIENT_SECRET",
+    "clientId": "examples-ci",
+    "secretEnv": "THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET",
     "scopes": [
-      "tenant:environments.write",
       "tenant:environments.read",
-      "tenant:applications.write",
+      "tenant:environments.write",
       "tenant:applications.read",
-      "tenant:users.write",
+      "tenant:applications.write",
       "tenant:users.read",
-      "tenant:email.write",
-      "tenant:email.read",
+      "tenant:users.write",
+      "tenant:idp.read",
       "tenant:idp.write",
-      "tenant:idp.read"
+      "tenant:access.read",
+      "tenant:access.write"
     ]
   }
 }

@@ -4,15 +4,21 @@ name: totp-signin-e2e
 #
 #   thoryn login --connection      sign in from .thoryn/connection.json (who I am)
 #   → thoryn examples apply totp-signin   converges recipes/totp-signin/provision.yaml FIRST (how to get Thoryn up and
-#                                   running for this example: the throwaway sandbox, the loopback client, the demo
+#                                   running for this example: the fixture sandbox `ci-totp-signin` (ADOPTED, never created), the loopback client, the demo
 #                                   user) — the recipe's params feed its placeholders —
 #                                   then the recipe's extra steps (none for this example)
 #   → Playwright journey            the browser walk through the real hosted screens + the recipe's RP
-#   → thoryn examples teardown      destroys the provisioning (child-first; the sandbox hard-delete cascades)
+#   → thoryn examples teardown      destroys what the recipe CREATED inside the fixture (child-first; the adopted sandbox stays)
 #
 # Real product APIs only, as a real customer: the same recipe + provision file a customer fetches from the
-# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CI_CLIENT_SECRET (the env
+# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET (the env
 # var the contract names). Needs a cli-v* release carrying `provision:` on recipes (SSO-3100).
+#
+# SSO-3113 (epic SSO-3108) — CI signs in as the least-privilege identity `examples-ci` (.thoryn/connection.json),
+# which is `manager` of the long-lived fixture sandbox `ci-totp-signin` and of nothing else. A confined identity
+# structurally cannot create an environment (that needs `manager` on the WORKSPACE), so the sandbox is
+# founder-provisioned once (.thoryn/provision.yaml) and this run ADOPTS it by slug; only what lives inside it
+# (the loopback client, the demo user, per-env sign-in config) is created here and destroyed on exit.
 
 on:
   workflow_dispatch:
@@ -64,23 +70,24 @@ jobs:
           gh release download "$tag" --repo thoryn-io/thoryn-cli --pattern 'thoryn.jar' --dir .
           echo "Using CLI release $tag"
 
-      # Per-run values the recipe's params / the provision file's placeholders consume. The demo user's
-      # password rides ONLY as the env var the provision file names (passwordEnv: DEMO_USER_PASSWORD) —
-      # never on argv, never in a receipt — and the SAME value is handed to Playwright as SIGNUP_PASSWORD.
-      - name: Name this run
+      # The sandbox is the recipe's LONG-LIVED fixture (`ci-<recipe>`, SSO-3113), never a per-run slug: the recipe's
+      # `environment` resource matches it by slug and `examples apply` adopts it. The demo user's password rides
+      # ONLY as the env var the provision file names (passwordEnv: DEMO_USER_PASSWORD) — never on argv, never in
+      # a receipt — and the SAME value is handed to Playwright as SIGNUP_PASSWORD.
+      - name: Bind this run to the recipe's fixture sandbox
         run: |
           set -euo pipefail
-          echo "E2E_ENV_SLUG=totp-signin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "E2E_ENV_SLUG=ci-${RECIPE}" >> "$GITHUB_ENV"
           pw="Ex-$(openssl rand -hex 12)!"
           echo "::add-mask::$pw"
           echo "DEMO_USER_PASSWORD=$pw" >> "$GITHUB_ENV"
 
       - name: Sign in (connection contract)
         env:
-          THORYN_EXAMPLES_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+          THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET }}
         run: |
           set -euo pipefail
-          [ -n "${THORYN_EXAMPLES_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CI_CLIENT_SECRET is not set (see .thoryn/README.md)"; exit 1; }
+          [ -n "${THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET is not set — the founder apply of .thoryn/provision.yaml mints examples-ci and delivers it (see .thoryn/README.md)"; exit 1; }
           java -jar thoryn.jar login --connection .thoryn/connection.json
           java -jar thoryn.jar login --status
 
@@ -89,7 +96,7 @@ jobs:
           set -euo pipefail
           java -jar thoryn.jar examples update
 
-      # examples apply converges recipes/totp-signin/provision.yaml first (sandbox + client + demo user),
+      # examples apply converges recipes/totp-signin/provision.yaml first (adopts the fixture sandbox, then creates the client + demo user),
       # then the recipe's extra steps. The receipt lists the provisioned resources.
       - name: Apply the totp-signin recipe (provisions first) and resolve issuer/client
         id: apply
@@ -167,11 +174,12 @@ jobs:
           git pull --rebase --autostash origin main
           git push origin HEAD:main
 
-      # examples teardown destroys the provisioning (child-first; the sandbox hard-delete cascades the client + users).
+      # examples teardown destroys what the recipe CREATED inside the fixture (child-first: the loopback client, the demo
+      # user, …). The sandbox itself was adopted, and adopted resources are never deleted — the fixture outlives the run.
       - name: Teardown (examples teardown)
         if: always()
         run: |
           set -uo pipefail
           [ -n "${RP_PID:-}" ] && kill "$RP_PID" 2>/dev/null || true
           [ -f thoryn.jar ] || { echo "no CLI jar — nothing was provisioned"; exit 0; }
-          java -jar thoryn.jar examples teardown "$RECIPE" || echo "::warning::examples teardown reported an error — check for a leaked sandbox named for run $GITHUB_RUN_ID"
+          java -jar thoryn.jar examples teardown "$RECIPE" || echo "::warning::examples teardown reported an error — check for a leaked client/user inside fixture sandbox $E2E_ENV_SLUG (run $GITHUB_RUN_ID)"

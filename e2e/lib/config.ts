@@ -72,8 +72,8 @@ export const config = {
    *
    * `jarPath` is the prebuilt `thoryn.jar` on the runner (the same one the workflow uses for
    * apply/teardown, already signed in with a session that carries tenant:environments.read);
-   * `envSlug` is the fresh per-run sandbox. Both are empty for the simple-signin journey,
-   * which stays on the Mailpit path (it provisions a workspace, not a sandbox).
+   * `envSlug` is the recipe's sandbox (in CI its long-lived fixture `ci-<recipe>`, SSO-3113). Every
+   * journey, simple-signin included since SSO-3131, captures its mail this way.
    */
   cli: {
     jarPath: process.env.THORYN_JAR ?? "",
@@ -86,10 +86,13 @@ export const config = {
      * than the whole suite, and never clobbers the provisioning session the teardown reuses.
      * `apiKey` is the same `<client-id>:<client-secret>` the workflow signs in with; `workspaceSlug`
      * is the standing workspace (the `--confirm` value on the production plane). All empty locally →
-     * the suspended test skips.
+     * the suspended test skips. `issuer` is where that client-credentials session signs in: the
+     * WORKSPACE issuer (`THORYN_CLI_LOGIN_ISSUER`, SSO-3131) — the CI identity is a production-plane
+     * client that manages the sandbox, so it does not sign in at the sandbox's per-env issuer
+     * (`THORYN_ISSUER`, which the RP uses). Falls back to `THORYN_ISSUER` for a local run.
      */
     apiKey: process.env.THORYN_API_KEY ?? "",
-    issuer: process.env.THORYN_ISSUER ?? "",
+    issuer: process.env.THORYN_CLI_LOGIN_ISSUER || process.env.THORYN_ISSUER || "",
     gateway: process.env.THORYN_GATEWAY ?? "https://api.stg.thoryn.org",
     workspaceSlug: process.env.THORYN_WORKSPACE_SLUG ?? "",
     /**
@@ -97,7 +100,8 @@ export const config = {
      * X-Thoryn-Environment). Self-service users registered through a marker-less RP authorize land in
      * `production` (LoginModeResolver.currentLoginEnvironmentSlug default; confirmed against staging's
      * identity DB), and a client-credentials/CI session can't select an environment via `env use`, so
-     * the suspend must name it explicitly. Overridable if the standing workspace's self-service plane differs.
+     * the suspend must name it explicitly. In CI the journey runs inside the recipe's sandbox (SSO-3131), so the
+     * workflow sets THORYN_USERS_ENVIRONMENT to that sandbox's slug; `production` is only the local default.
      */
     usersEnvironment: process.env.THORYN_USERS_ENVIRONMENT ?? "production",
   },

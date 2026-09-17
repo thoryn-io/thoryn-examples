@@ -1,49 +1,44 @@
 /**
  * SSO-2909 — the `simple-signin` example, driven end-to-end in a real browser against
- * the STAGING SaaS, INCLUDING a genuinely-sent verification email captured from an
- * EPHEMERAL, in-job Mailpit sink. This is Path B (real self-service sign-up +
- * email capture): a brand-new end user registers on the provisioned workspace, which
- * makes identity SEND a verification email over the tenant's BYO-SMTP (pointed at a
- * public TCP tunnel to the in-job Mailpit by the workflow; the harness reads it back
- * on localhost). The recipe's own identity.registerUser step pre-verifies
- * WITHOUT an email — that is a convenience for the conformance run, not this path.
+ * the STAGING SaaS, INCLUDING the genuinely-generated verification / password-reset /
+ * account-unlock emails. This is Path B (real self-service sign-up + email capture): a
+ * brand-new end user registers through the recipe's loopback RP, which makes identity
+ * generate a verification email.
+ *
+ * SSO-3131: the journey runs inside the recipe's SANDBOX environment (in CI the long-lived
+ * fixture `ci-simple-signin`, adopted by `thoryn examples apply --set envSlug=…`), not on the
+ * workspace's production plane. A sandbox SUPPRESSES real transactional email and captures it
+ * into its per-env test-inbox, which the harness reads back through the product's own read
+ * surface, `thoryn env test-emails` (e2e/lib/test-inbox.mjs): verification (SSO-3026),
+ * password reset (SSO-3079) and account unlock (SSO-3135, channel `account_unlock`). No
+ * email provider, no SMTP sink, no tunnel, no `tenant:email.*` scope.
  *
  * This spec is COLOCATED with the recipe it validates (recipes/simple-signin/e2e/).
- * It imports the SHARED harness (config, Mailpit capture) from the repo-root `e2e/`
- * tree — the one reusable home both recipes' specs import, so there is no duplicated
- * setup. The step titles come from ./scenario.mjs (the single source the generated
+ * It imports the SHARED harness (config, test-inbox capture) from the repo-root `e2e/`
+ * tree. The step titles come from ./scenario.mjs (the single source the generated
  * E2E_RESULTS.md "Steps" list uses too).
  *
  *   1. Open the REAL loopback RP (../apps/loopback-rp/server.js):
- *      GET / → "Sign in with Thoryn" → RP 302s to {workspace-issuer}/oauth2/authorize
+ *      GET / → "Sign in with Thoryn" → RP 302s to {sandbox-issuer}/oauth2/authorize
  *      → the hub federates to the tenant's identity → its hosted login renders.
  *   2. From the hosted login, follow the self-service "Sign up / Create account"
  *      path → fill the register form with a UNIQUE email → "Check your email".
- *   3. Poll Mailpit's API until the verification email to THIS address lands;
- *      extract the real `<identity>/verify-email?token=…` link from its body.
+ *   3. Poll the sandbox test-inbox until the verification email to THIS address is
+ *      captured; take its real `<identity>/verify-email?token=…` link.
  *   4. Follow the link → branded "Your email is verified" (single-use token consumed).
  *   5. Return to the RP → Sign in → hosted login → sign in with the registered creds
  *      → callback → RP /protected renders the ID-token claims. Assert we are signed in.
  *
- * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │ SCAFFOLD — activates once the maintainer creates the CI secrets (see          │
- * │ e2e/README.md) and a FIRST live run confirms the three unproven seams marked  │
- * │ `LIVE-CONFIRM` below:                                                          │
- * │  (a) the tenant hosted-login → self-service register entry (selectors + that   │
- * │      self-service sign-up is enabled on the cloned identity member),           │
- * │  (b) BYO-SMTP → Mailpit actually delivers the verification email, and          │
- * │  (c) the freshly-verified account completes the RP OIDC round-trip.            │
- * │ Form selectors mirror oathy e2e/scenario/tests/hosted-signup-to-console.spec   │
- * │ (register.html #registerForm / login.html #passwordForm).                      │
- * └─────────────────────────────────────────────────────────────────────────────┘
+ * Form selectors mirror oathy e2e/scenario/tests/hosted-signup-to-console.spec
+ * (register.html #registerForm / login.html #passwordForm).
  */
 import { test, expect, type Page, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { config } from "../../../e2e/lib/config";
-import { findVerificationLink, findResetLink, findUnlockLink } from "../../../e2e/lib/mailbox";
+import { findVerificationLinkViaInbox, findResetLinkViaInbox, findUnlockLinkViaInbox } from "../../../e2e/lib/test-inbox.mjs";
 import { userAdminConfigured, loginForUserAdmin, suspendUserByEmail, listUsersDiagnostic } from "../../../e2e/lib/user-admin.mjs";
 import { STEPS } from "./scenario.mjs";
 
-/** Unique per run so reruns never 409 and the Mailpit match is unambiguous. */
+/** Unique per run so reruns never 409 and the test-inbox match is unambiguous. */
 function uniqueEmail(): string {
   return `example-signin-${Date.now()}-${Math.floor(Math.random() * 1e6)}@thoryn.test`;
 }
@@ -88,7 +83,7 @@ async function submitLoginWith(page: Page, email: string, password: string): Pro
   await page.locator("#passwordForm button[type=submit]").click();
 }
 
-/** Register a brand-new end user and verify their email via the captured Mailpit link. */
+/** Register a brand-new end user and verify their email via the link captured to the sandbox test-inbox. */
 async function registerAndVerify(page: Page, request: APIRequestContext, email: string): Promise<void> {
   await startSignInFromRp(page);
   await expect(page.locator("#passwordForm")).toBeVisible();
@@ -99,7 +94,7 @@ async function registerAndVerify(page: Page, request: APIRequestContext, email: 
   await expect
     .poll(
       async () => {
-        verifyLink = await findVerificationLink(request, config.mailpit, email);
+        verifyLink = await findVerificationLinkViaInbox(config.cli, email);
         return verifyLink;
       },
       { timeout: 90_000, intervals: [1000, 2000, 3000, 5000] },
@@ -114,7 +109,7 @@ test.describe("simple-signin example — self-service sign-up → verify email �
     browser,
     request,
   }) => {
-    // RP round-trip + TWO real emails (verify + reset) + Mailpit polling + several hosted form legs.
+    // RP round-trip + TWO real emails (verify + reset) + test-inbox polling + several hosted form legs.
     test.setTimeout(300_000);
 
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -125,12 +120,12 @@ test.describe("simple-signin example — self-service sign-up → verify email �
     let context2: BrowserContext | null = null;
 
     try {
-      // 1) RP → "Sign in with Thoryn" → the workspace hub → the hosted login form.
+      // 1) RP → "Sign in with Thoryn" → the sandbox issuer → the hosted login form.
       await test.step(STEPS.hostedLogin, async () => {
         await startSignInFromRp(page);
         await expect(
           page.locator("#passwordForm"),
-          "the RP sign-in reaches the identity hosted login via the workspace hub",
+          "the RP sign-in reaches the identity hosted login via the sandbox issuer",
         ).toBeVisible();
       });
 
@@ -144,19 +139,19 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         ).toBeVisible();
       });
 
-      // 3) Capture the REAL verification email from Mailpit (SMTP-delivered by
-      //    identity through the tenant's BYO-SMTP). LIVE-CONFIRM (b).
+      // 3) Capture the REAL verification email from the sandbox test-inbox (identity generated it
+      //    and captured it instead of sending it — SSO-3026).
       let verifyLink: string | null = null;
       await test.step(STEPS.capture, async () => {
         await expect
           .poll(
             async () => {
-              verifyLink = await findVerificationLink(request, config.mailpit, email);
+              verifyLink = await findVerificationLinkViaInbox(config.cli, email);
               return verifyLink;
             },
             {
               // The identity email send is queued/async; allow generous delivery time.
-              message: `verification email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+              message: `verification email to ${email} captured from the test-inbox of sandbox ${config.cli.envSlug}`,
               timeout: 90_000,
               intervals: [1000, 2000, 3000, 5000],
             },
@@ -179,7 +174,7 @@ test.describe("simple-signin example — self-service sign-up → verify email �
 
       // 5) Return to the RP and complete the OIDC login with the verified creds.
       //    LIVE-CONFIRM (c): the account just verified on the tenant's identity
-      //    authenticates through the workspace hub federation and back to the RP.
+      //    authenticates through the hub federation and back to the RP.
       await test.step(STEPS.signin, async () => {
         await startSignInFromRp(page);
         await expect(page.locator("#passwordForm")).toBeVisible();
@@ -218,17 +213,17 @@ test.describe("simple-signin example — self-service sign-up → verify email �
         ).toBeVisible();
       });
 
-      // 7) Capture the REAL password-reset email from the SAME in-job Mailpit sink.
+      // 7) Capture the REAL password-reset email from the SAME sandbox test-inbox (SSO-3079).
       let resetLink: string | null = null;
       await test.step(STEPS.captureReset, async () => {
         await expect
           .poll(
             async () => {
-              resetLink = await findResetLink(request, config.mailpit, email);
+              resetLink = await findResetLinkViaInbox(config.cli, email);
               return resetLink;
             },
             {
-              message: `password-reset email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+              message: `password-reset email to ${email} captured from the test-inbox of sandbox ${config.cli.envSlug}`,
               timeout: 90_000,
               intervals: [1000, 2000, 3000, 5000],
             },
@@ -295,7 +290,7 @@ test.describe("simple-signin example — self-service sign-up → verify email �
           await expect
             .poll(
               async () => {
-                verifyLink = await findVerificationLink(request, config.mailpit, email);
+                verifyLink = await findVerificationLinkViaInbox(config.cli, email);
                 return verifyLink;
               },
               { timeout: 90_000, intervals: [1000, 2000, 3000, 5000] },
@@ -333,17 +328,17 @@ test.describe("simple-signin example — self-service sign-up → verify email �
           ).toContainText(/unlock link is on its way/i);
         });
 
-        // Capture the REAL unlock email from the same in-job Mailpit sink + confirm on the landing page.
+        // Capture the REAL unlock email from the sandbox test-inbox (channel account_unlock, SSO-3135) + confirm on the landing page.
         let unlockLink: string | null = null;
         await test.step("Capture the unlock email and confirm on the landing page", async () => {
           await expect
             .poll(
               async () => {
-                unlockLink = await findUnlockLink(request, config.mailpit, email);
+                unlockLink = await findUnlockLinkViaInbox(config.cli, email);
                 return unlockLink;
               },
               {
-                message: `unlock email to ${email} captured from Mailpit sink ${config.mailpit.baseUrl}`,
+                message: `unlock email to ${email} captured from the test-inbox of sandbox ${config.cli.envSlug}`,
                 timeout: 90_000,
                 intervals: [1000, 2000, 3000, 5000],
               },

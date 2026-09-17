@@ -6,12 +6,14 @@
 # provisioning (child-first; the sandbox hard-delete cascades).
 apiVersion: thoryn.io/examples/v1
 id: simple-signin
-version: 3.0.0
-summary: Register a public loopback OAuth client in your workspace, then sign a user up (real verification email) and in through the recipe's relying party.
+version: 3.1.0
+summary: Register a public loopback OAuth client in a sandbox environment you own, then sign a user up (verification email captured to the sandbox test-inbox) and in through the recipe's relying party.
 provision: ./provision.yaml
 
 requires:
   scopes:
+    - tenant:environments.write
+    - tenant:environments.read
     - tenant:applications.write
     - tenant:applications.read
     - tenant:users.write
@@ -23,9 +25,10 @@ params:
   - name: workspaceSlug
     prompt: "Standing workspace slug (the workspace your session is bound to; NOT created)"
     validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
-  - name: demoEmail
-    prompt: "Email address of the demo user the provision file registers"
-    default: "demo-{{generate.slug8}}@example.com"
+  - name: envSlug
+    prompt: "Slug for the sandbox environment the provision file creates (or adopts, if it already exists)"
+    default: "simple-signin-{{generate.slug8}}"
+    validate: "^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$"
   - name: appName
     prompt: "Display name for the OAuth client"
     default: "Sign-in Example App {{generate.slug8}}"

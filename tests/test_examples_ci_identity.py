@@ -5,11 +5,12 @@ They bind `.thoryn/provision.yaml` (the workspace-level "what I own" file) to th
 can silently widen the identity's reach:
 
   * the identity's scopes are EXACTLY what converging CI's files needs — recomputed from the kinds those
-    files declare and the CLI actions the confined recipes' journeys run;
-  * the identity's whole declared reach is `manager` on one fixture sandbox per sandbox-plane recipe —
-    nothing on the production plane, nothing workspace-wide, no other subject on those sandboxes;
-  * every recipe is either confined (it has a fixture) or explicitly listed as NOT confined with a reason,
-    so a new recipe forces the decision instead of inheriting reach by accident;
+    files declare and the CLI actions the recipes' journeys run;
+  * the identity's whole declared reach is `manager` on one fixture sandbox per recipe — all 9 (settled
+    2026-09-17, SSO-3131) — nothing on the production plane, nothing workspace-wide, no other subject on
+    those sandboxes;
+  * every recipe runs in its sandbox, except one whose sandbox rework is BLOCKED on a recorded product gap
+    (PENDING_SANDBOX_REWORK) — and such an entry must be removed the moment the recipe moves;
   * `connection.json`'s scopes stay within what the file declares for the client it signs in with.
 
 Run: python3 -m unittest discover -s tests -v   (needs PyYAML; CI installs nothing else)
@@ -29,11 +30,15 @@ RECIPES = ROOT / "recipes"
 
 CI_CLIENT_ID = "examples-ci"
 CI_SUBJECT = f"client:{CI_CLIENT_ID}"
+CONFINED_SECRET_ENV = "THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET"
 
-# Recipes deliberately NOT on the confined identity — each needs reach a sandbox manager cannot have.
-NOT_CONFINED = {
-    "simple-signin": "production plane: a production-plane client + user and the workspace BYO-SMTP "
-    "email provider need manager on the WORKSPACE (ADR 2026-09-15 §4 create rule)",
+# Recipes whose move INTO their fixture sandbox is blocked on a recorded product gap. Every recipe gets a
+# fixture (SSO-3131 settled: one confined identity covers all 9); an entry here only tolerates the recipe
+# still running on the production plane (on the legacy identity) until its gap closes. Never add an entry
+# without a gap ticket.
+PENDING_SANDBOX_REWORK = {
+    "simple-signin": "SSO-3135 — a sandbox suppresses the account-unlock email without capturing it to the "
+    "test-inbox, and the journey's lockout case needs that email",
 }
 
 # The product-api scope AREA a provisioning kind is managed through (`tenant:<area>.<read|write>`) —
@@ -56,6 +61,7 @@ CLI_ACTION_AREA = {
     '"login-flow"': "idp",
     '"login-methods"': "idp",
     '"test-emails"': "environments",
+    '"users"': "users",
 }
 
 SECRET_KEY = re.compile(r"([Pp]assword|[Ss]ecret|[Tt]oken)$")
@@ -110,34 +116,47 @@ class ExamplesCiIdentityTest(unittest.TestCase):
         cls.file = load_yaml(PROVISION)
         cls.resources = cls.file["resources"]
         cls.connection = json.loads(CONNECTION.read_text(encoding="utf-8"))
-        cls.confined = sorted(r for r in recipe_ids() if r not in NOT_CONFINED)
+        cls.recipes = recipe_ids()
 
     def ci(self):
         return next(r for r in self.resources if key(r) == f"application/{CI_CLIENT_ID}")
 
-    def test_every_recipe_is_either_confined_or_explicitly_not_confined(self):
-        unknown = set(NOT_CONFINED) - set(recipe_ids())
-        self.assertFalse(unknown, f"NOT_CONFINED names recipes that do not exist: {unknown}")
-        # Confined == sandbox-plane recipes: a production-plane recipe cannot be confined to a sandbox, and a
-        # sandbox-plane recipe has no reason to stay off the confined identity.
-        self.assertEqual(self.confined, sandbox_recipes())
+    def test_every_recipe_runs_in_a_sandbox_unless_its_rework_is_blocked_on_a_recorded_gap(self):
+        unknown = set(PENDING_SANDBOX_REWORK) - set(self.recipes)
+        self.assertFalse(unknown, f"PENDING_SANDBOX_REWORK names recipes that do not exist: {unknown}")
+        for recipe, reason in PENDING_SANDBOX_REWORK.items():
+            self.assertRegex(reason, r"^SSO-\d+ ", f"{recipe}: a pending rework must name its gap ticket")
+        # Exactly the pending recipes are still production-plane: a new recipe cannot start there, and a
+        # reworked recipe must drop its entry.
+        self.assertEqual(set(self.recipes) - set(sandbox_recipes()), set(PENDING_SANDBOX_REWORK))
 
-    def test_the_file_declares_the_ci_identity_plus_exactly_one_fixture_sandbox_per_confined_recipe(self):
+    def test_only_a_pending_recipe_still_uses_the_workspace_email_provider(self):
+        # The workspace BYO-SMTP is production-plane reach examples-ci must never need.
+        for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            text = wf.read_text(encoding="utf-8")
+            if "email-provider" not in text:
+                continue
+            m = re.search(r"^\s*RECIPE:\s*([\w-]+)", text, re.MULTILINE)
+            self.assertTrue(m and m.group(1) in PENDING_SANDBOX_REWORK, f"{wf.name} drives the workspace email provider")
+
+    def test_the_file_declares_the_ci_identity_plus_exactly_one_fixture_sandbox_per_recipe(self):
         self.assertEqual(self.file["apiVersion"], "thoryn.io/provision/v1")
-        expected = [f"application/{CI_CLIENT_ID}"] + [f"environment/{r}" for r in self.confined]
+        expected = [f"application/{CI_CLIENT_ID}"] + [f"environment/{r}" for r in self.recipes]
         self.assertEqual([key(r) for r in self.resources], expected)
         # The production plane holds exactly one resource: the identity itself.
         production = [key(r) for r in self.resources if r["kind"] != "environment" and "environment" not in r]
         self.assertEqual(production, [f"application/{CI_CLIENT_ID}"])
 
     def test_each_fixture_sandbox_has_a_fixed_slug_and_the_display_name_its_recipe_declares(self):
-        for recipe in self.confined:
+        for recipe in self.recipes:
             env = next(r for r in self.resources if key(r) == f"environment/{recipe}")
             self.assertEqual(env["spec"]["slug"], f"ci-{recipe}")
             self.assertNotIn("{{", env["spec"]["slug"], "a fixture slug is fixed, never a per-run placeholder")
-            recipe_env = next(x for x in recipe_provision(recipe)["resources"] if x["kind"] == "environment")
-            # Adopting the fixture through the recipe must converge as a no-op, not rename it every run.
-            self.assertEqual(env["spec"].get("displayName"), recipe_env["spec"].get("displayName"), recipe)
+            recipe_env = next((x for x in recipe_provision(recipe)["resources"] if x["kind"] == "environment"), None)
+            # Adopting the fixture through the recipe must converge as a no-op, not rename it every run. A
+            # pending recipe has no environment yet; its fixture uses the name the rework will declare.
+            want = recipe_env["spec"].get("displayName") if recipe_env else f"{recipe} example"
+            self.assertEqual(env["spec"].get("displayName"), want, recipe)
 
     def test_the_ci_identity_is_a_confidential_client_credentials_client_on_the_production_plane(self):
         ci = self.ci()
@@ -150,10 +169,10 @@ class ExamplesCiIdentityTest(unittest.TestCase):
 
     def test_the_ci_identity_holds_exactly_the_scopes_converging_its_files_needs(self):
         areas = set()
-        converged = [self.file] + [recipe_provision(r) for r in self.confined]
+        converged = [self.file] + [recipe_provision(r) for r in self.recipes]
         for doc in converged:
             areas |= {KIND_AREA[r["kind"]] for r in doc["resources"]}
-        for recipe in self.confined:
+        for recipe in self.recipes:
             for src in journey_sources(recipe):
                 text = src.read_text(encoding="utf-8")
                 areas |= {area for action, area in CLI_ACTION_AREA.items() if action in text}
@@ -164,9 +183,9 @@ class ExamplesCiIdentityTest(unittest.TestCase):
         self.assertEqual(granted, expected, f"{CI_CLIENT_ID} holds {sorted(granted)}; needs exactly {sorted(expected)}")
         self.assertEqual(len(self.ci()["spec"]["scopes"]), len(granted), "duplicate scope")
 
-    def test_every_confined_recipe_declares_requirements_the_identity_holds(self):
+    def test_every_recipe_declares_requirements_the_identity_holds(self):
         granted = set(self.ci()["spec"]["scopes"])
-        for recipe in self.confined:
+        for recipe in self.recipes:
             required = set(load_yaml(RECIPES / recipe / "recipe.yaml").get("requires", {}).get("scopes", []))
             self.assertLessEqual(required, granted, f"{recipe} requires {sorted(required - granted)} which {CI_CLIENT_ID} lacks")
 
@@ -174,7 +193,7 @@ class ExamplesCiIdentityTest(unittest.TestCase):
         reach = sorted(
             f"{key(r)} {g['relation']}" for r in self.resources for g in r.get("grants") or [] if g["subject"] == CI_SUBJECT
         )
-        self.assertEqual(reach, sorted(f"environment/{r} manager" for r in self.confined))
+        self.assertEqual(reach, sorted(f"environment/{r} manager" for r in self.recipes))
         # No grant on the identity's own record (creator-becomes-manager covers it) and nothing on the
         # production plane; each sandbox grants nobody but the CI identity.
         self.assertNotIn("grants", self.ci())
@@ -206,6 +225,9 @@ class ExamplesCiIdentityTest(unittest.TestCase):
             (r for r in self.resources if r["kind"] == "application" and r["spec"].get("clientId") == client_id), None
         )
         self.assertIsNotNone(declared, f"connection.json signs in as '{client_id}', which this repo does not declare")
+        # SSO-3113 (settled 2026-09-17): the confined identity has its OWN secret, so old and new identities
+        # run side by side with no outage window.
+        self.assertEqual(self.connection["auth"]["secretEnv"], CONFINED_SECRET_ENV)
         requested = set(self.connection["auth"]["scopes"])
         self.assertLessEqual(requested, set(declared["spec"]["scopes"]))
 

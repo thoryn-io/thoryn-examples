@@ -12,7 +12,7 @@
 #    leaves through SecretIo, never the receipt); every later apply ADOPTS it by its fixed clientId, so CI
 #    can never delete the identity it signs in with. A client manages its own record by creation
 #    (creator-becomes-manager), so that is not restated as a grant.
-#  - One LONG-LIVED fixture SANDBOX per sandbox-plane recipe, each granting `client:examples-ci manager`.
+#  - One LONG-LIVED fixture SANDBOX per recipe, each granting `client:examples-ci manager`.
 #    Sandbox lifecycle settled 2026-09-16 (product owner): creating a resource needs `manager` on its
 #    PARENT, and an environment's parent is the WORKSPACE, so a confined identity structurally cannot
 #    create an environment — and workspace-manager for CI was rejected because it re-opens the exposure
@@ -25,10 +25,11 @@
 #    Each fixture's `displayName` equals the one its recipe's provision file declares, so adopting it
 #    converges as a no-op instead of flip-flopping the name.
 #
-# NOT here, deliberately: `simple-signin`. Its whole point is the PRODUCTION plane (a real verification
-# email through the workspace's BYO-SMTP, a production-plane client + user, a user suspend) — creating on
-# the production plane needs `manager` on the workspace, and the workspace email provider is a workspace
-# singleton. It cannot run on a sandbox-confined identity; see `.thoryn/README.md` ("Not confined") and SSO-3131.
+# `ci-simple-signin` is declared too (settled 2026-09-17, SSO-3131: simple-signin moves onto a sandbox so
+# ONE confined identity covers all 9 recipes), so the founder's single apply provisions every fixture. The
+# recipe itself still runs on the PRODUCTION plane until SSO-3135 lands: a sandbox suppresses the
+# account-unlock email WITHOUT capturing it to the test-inbox, and simple-signin's journey includes the
+# lockout → unlock-email case. Until then simple-signin stays on the legacy identity (see .thoryn/README.md).
 #
 # No secrets live here; none are needed. The receipt (`provision.receipt.json`) is git-ignored.
 apiVersion: thoryn.io/provision/v1
@@ -54,8 +55,10 @@ resources:
         - tenant:idp.write                # `loginTheme` / `loginMethods` kinds + `login-methods set` / `login-flow set` in journeys
         - tenant:access.read              # the `grants:` blocks below (list live grants to diff)
         - tenant:access.write             # the `grants:` blocks below (converge them)
-      # NOT held: tenant:email.* (only simple-signin's production-plane BYO-SMTP needs it) and
-      # tenant:federation.* (no recipe declares a federationMember).
+      # NOT held: tenant:email.* — no recipe converges an `emailProvider`; every scenario (simple-signin too,
+      # once SSO-3135 lets it move into its sandbox) captures mail from the sandbox test-inbox, which is
+      # `env test-emails` (environments.read). The workspace BYO-SMTP simple-signin uses today is exactly the
+      # production-plane reach this identity must not have. tenant:federation.*: no federationMember kind.
 
   - kind: environment
     name: branded-signin
@@ -107,6 +110,15 @@ resources:
     spec:
       slug: ci-sandbox-signin
       displayName: "sandbox-signin example"
+    grants:
+      - subject: "client:examples-ci"
+        relation: manager
+
+  - kind: environment
+    name: simple-signin
+    spec:
+      slug: ci-simple-signin
+      displayName: "simple-signin example"
     grants:
       - subject: "client:examples-ci"
         relation: manager

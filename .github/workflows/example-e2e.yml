@@ -11,8 +11,17 @@ name: example-e2e
 #   → thoryn examples teardown      destroys the provisioning (child-first)
 #
 # Real product APIs only, as a real customer: the same recipe + provision file a customer fetches from the
-# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CI_CLIENT_SECRET (the env
+# signed catalog is what CI applies. The ONLY injected secret is THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET (the env
 # var the contract names) plus the tunnel provider's token. Needs a cli-v* release carrying `provision:` on recipes (SSO-3100).
+#
+# SSO-3113 (epic SSO-3108) — CI signs in as the least-privilege identity `examples-ci` (.thoryn/connection.json).
+# simple-signin is the ONE recipe still on the PRODUCTION plane: its lockout → account-unlock-email case needs the
+# workspace BYO-SMTP, which a sandbox suppresses without capturing (product gap SSO-3135). Its fixture sandbox
+# `ci-simple-signin` is already provisioned; the move onto it is SSO-3131. Until then this workflow is EXPECTED RED
+# at `workspace email-provider set` / `examples apply --environment production`: examples-ci holds no tenant:email.*
+# scope and is not `manager` of the workspace, so the production plane answers 404 by design — and the legacy
+# workspace-wide client it used to sign in with (app-9450eb88-c1f) is gone with the workspace reclaim (SSO-3164).
+# Do NOT widen examples-ci or add a second identity to make this green: fix SSO-3135, then land SSO-3131.
 
 on:
   workflow_dispatch:
@@ -79,10 +88,10 @@ jobs:
 
       - name: Sign in (connection contract)
         env:
-          THORYN_EXAMPLES_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+          THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET }}
         run: |
           set -euo pipefail
-          [ -n "${THORYN_EXAMPLES_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CI_CLIENT_SECRET is not set (see .thoryn/README.md)"; exit 1; }
+          [ -n "${THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET is not set — the founder apply of .thoryn/provision.yaml mints examples-ci and delivers it (see .thoryn/README.md)"; exit 1; }
           java -jar thoryn.jar login --connection .thoryn/connection.json
           java -jar thoryn.jar login --status
 
@@ -232,7 +241,7 @@ jobs:
           IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
           THORYN_JAR: ${{ github.workspace }}/thoryn.jar
           MAILPIT_BASE_URL: http://localhost:8025
-          THORYN_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+          THORYN_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET }}
           THORYN_WORKSPACE_SLUG: ${{ steps.apply.outputs.workspace_slug }}
           THORYN_GATEWAY: ${{ env.THORYN_GATEWAY }}
           CI: "true"

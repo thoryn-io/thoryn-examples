@@ -11,7 +11,11 @@ can silently widen the identity's reach:
     those sandboxes;
   * every recipe runs in its sandbox, except one whose sandbox rework is BLOCKED on a recorded product gap
     (PENDING_SANDBOX_REWORK) — and such an entry must be removed the moment the recipe moves;
-  * `connection.json`'s scopes stay within what the file declares for the client it signs in with.
+  * `connection.json` signs in as `examples-ci`, names the confined secret, and requests exactly the scopes
+    the file declares for it (SSO-3113 step 2);
+  * every workflow that signs in injects the confined secret and ONLY that secret (never the legacy one
+    beside it), and every scenario workflow adopts its recipe's fixture sandbox `ci-<recipe>` — no per-run
+    slug, no `env create`, no `env delete` (a confined identity cannot create an environment).
 
 Run: python3 -m unittest discover -s tests -v   (needs PyYAML; CI installs nothing else)
 """
@@ -31,6 +35,8 @@ RECIPES = ROOT / "recipes"
 CI_CLIENT_ID = "examples-ci"
 CI_SUBJECT = f"client:{CI_CLIENT_ID}"
 CONFINED_SECRET_ENV = "THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET"
+LEGACY_SECRET_ENV = "THORYN_EXAMPLES_CI_CLIENT_SECRET"  # app-9450eb88-c1f's — retired, must not resurface
+WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Recipes whose move INTO their fixture sandbox is blocked on a recorded product gap. Every recipe gets a
 # fixture (SSO-3131 settled: one confined identity covers all 9); an entry here only tolerates the recipe
@@ -214,22 +220,52 @@ class ExamplesCiIdentityTest(unittest.TestCase):
             self.assertFalse([k for k in spec if k.endswith("Env")], key(r))
             self.assertNotIn("{{", json.dumps(spec), key(r))
 
-    def test_the_connection_scopes_are_within_the_grant_of_the_client_it_signs_in_with(self):
-        client_id = self.connection["auth"]["clientId"]
-        if client_id != CI_CLIENT_ID:
-            # Step 1 of SSO-3113: examples-ci is declared but its secret does not exist until a founder
-            # applies this file, so connection.json still names the legacy client. Step 2 flips it — from
-            # then on this test binds the two files.
-            self.skipTest(f"connection.json still signs in as legacy '{client_id}' (SSO-3113 step 2 switches it)")
-        declared = next(
-            (r for r in self.resources if r["kind"] == "application" and r["spec"].get("clientId") == client_id), None
-        )
-        self.assertIsNotNone(declared, f"connection.json signs in as '{client_id}', which this repo does not declare")
-        # SSO-3113 (settled 2026-09-17): the confined identity has its OWN secret, so old and new identities
-        # run side by side with no outage window.
-        self.assertEqual(self.connection["auth"]["secretEnv"], CONFINED_SECRET_ENV)
-        requested = set(self.connection["auth"]["scopes"])
-        self.assertLessEqual(requested, set(declared["spec"]["scopes"]))
+    def test_the_connection_signs_in_as_the_ci_identity_with_exactly_its_declared_scopes(self):
+        # SSO-3113 step 2: connection.json is bound to this file. A regression to the legacy client, a wider
+        # scope request, or the old secret name would silently re-open the reach the epic removed.
+        auth = self.connection["auth"]
+        self.assertEqual(self.connection["workspace"]["slug"], "examples")
+        self.assertEqual(auth["method"], "client_credentials")
+        self.assertEqual(auth["clientId"], CI_CLIENT_ID)
+        self.assertEqual(auth["secretEnv"], CONFINED_SECRET_ENV)
+        self.assertEqual(set(auth["scopes"]), set(self.ci()["spec"]["scopes"]))
+        self.assertEqual(len(auth["scopes"]), len(set(auth["scopes"])), "duplicate scope")
+
+    def test_every_workflow_that_signs_in_injects_the_confined_secret_and_only_that_secret(self):
+        signing_in = []
+        for wf in sorted(WORKFLOWS.glob("*.yml")):
+            text = wf.read_text(encoding="utf-8")
+            self.assertNotIn(LEGACY_SECRET_ENV, text, f"{wf.name} still names the retired legacy secret")
+            if "login --connection" not in text:
+                continue
+            signing_in.append(wf.name)
+            self.assertIn(f"secrets.{CONFINED_SECRET_ENV}", text, f"{wf.name} signs in but does not inject {CONFINED_SECRET_ENV}")
+            self.assertIn(f'[ -n "${{{CONFINED_SECRET_ENV}:-}}" ]', text, f"{wf.name} must fail loud when the secret is unset")
+            injected = set(re.findall(r"secrets\.(THORYN_[A-Z_]*SECRET)", text))
+            self.assertEqual(injected, {CONFINED_SECRET_ENV}, f"{wf.name} injects {sorted(injected)}")
+        self.assertTrue(signing_in, "no workflow signs in from the connection contract")
+
+    def test_every_scenario_workflow_adopts_its_recipes_fixture_sandbox(self):
+        # One long-lived fixture per recipe (`ci-<recipe>`), adopted by slug: never a per-run slug (a confined
+        # identity cannot create an environment), never an env create/delete around the recipe.
+        seen = set()
+        for wf in sorted(WORKFLOWS.glob("*.yml")):
+            text = wf.read_text(encoding="utf-8")
+            m = re.search(r"^\s*RECIPE:\s*([\w-]+)", text, re.MULTILINE)
+            if not m:
+                continue
+            recipe = m.group(1)
+            seen.add(recipe)
+            self.assertNotRegex(text, r"\benv (create|delete)\b", f"{wf.name} creates or deletes an environment")
+            if recipe in PENDING_SANDBOX_REWORK:
+                continue  # still production-plane by recorded gap; no sandbox to adopt yet
+            self.assertIn(f'E2E_ENV_SLUG=ci-${{RECIPE}}', text, f"{wf.name} must bind to the fixture ci-{recipe}")
+            self.assertNotIn("GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}", text, f"{wf.name} still names a per-run sandbox")
+        self.assertEqual(seen, set(self.recipes), "every recipe has exactly one scenario workflow")
+        conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
+        self.assertIn('--set "envSlug=ci-$id"', conformance)
+        self.assertNotIn("conf-", conformance.split("jobs:")[1].replace("conf-<id>-<run>", ""), "conformance still mints per-run sandboxes")
+        self.assertIn("Assert the CI identity is confined", conformance)
 
 
 if __name__ == "__main__":

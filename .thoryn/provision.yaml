@@ -29,7 +29,8 @@
 # ONE confined identity covers all 9 recipes), so the founder's single apply provisions every fixture. The
 # recipe itself still runs on the PRODUCTION plane until SSO-3135 lands: a sandbox suppresses the
 # account-unlock email WITHOUT capturing it to the test-inbox, and simple-signin's journey includes the
-# lockout → unlock-email case. Until then simple-signin stays on the legacy identity (see .thoryn/README.md).
+# lockout → unlock-email case. Until then simple-signin still targets the production plane, which this confined
+# identity cannot reach — its workflow is expected red and conformance skips it (see .thoryn/README.md).
 #
 # No secrets live here; none are needed. The receipt (`provision.receipt.json`) is git-ignored.
 apiVersion: thoryn.io/provision/v1

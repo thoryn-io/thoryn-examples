@@ -3,15 +3,31 @@ name: conformance
 # SSO-3092 (epic SSO-3087) — nightly + on-demand recipe conformance against STAGING. Every catalog recipe
 # is applied (which converges its provision file first), verified, and torn down, as a real customer:
 # sign-in from .thoryn/connection.json, the released CLI jar, no DB seed, no bundled test recipe (the
-# bundled ci-signin + the legacy THORYN_API_KEY secret are retired). Each sandbox-plane recipe gets a
-# throwaway sandbox named for the run; simple-signin (production plane) applies a client + demo user
-# there and tears them down. A red recipe blocks a catalog release.
+# bundled ci-signin + the legacy THORYN_API_KEY secret are retired). A red recipe blocks a catalog release.
+#
+# SSO-3113 (epic SSO-3108) — CI signs in as the least-privilege identity `examples-ci`, which is `manager`
+# of ONE long-lived fixture sandbox per recipe (`ci-<recipe>`, declared in .thoryn/provision.yaml) and of
+# nothing else. A confined identity structurally cannot create an environment (that needs `manager` on the
+# WORKSPACE), so this workflow no longer mints a throwaway `conf-<id>-<run>` sandbox per recipe: each recipe
+# is applied INTO its fixture (`examples apply <id> --set envSlug=ci-<id>` adopts it by slug), verified, and
+# torn down — teardown destroys only what the recipe CREATED inside the sandbox (the loopback client, the
+# demo user, …); an adopted sandbox is never deleted. One fixture per recipe, never a shared one, so per-env
+# config (login flow, sign-in methods, theme) cannot leak from one recipe into the next (SSO-3076). Runs
+# never overlap: this workflow and every scenario workflow share the `example-e2e` concurrency group.
+#
+# A recipe with no sandbox yet (today: simple-signin, blocked on SSO-3135 → moves to `ci-simple-signin`
+# under SSO-3131) runs on the PRODUCTION plane, which `examples-ci` cannot reach by design — it is
+# SKIPPED with a warning, never faked green. The ONLY injected secret is THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET.
 
 on:
   workflow_dispatch:
     inputs:
       recipe:
         description: "A single recipe id to run (default: every recipe with a provision file)"
+        required: false
+        default: ""
+      foreign-environment-id:
+        description: "Id (UUID) of an environment in the `examples` workspace that examples-ci must NOT reach (e.g. its production environment). When set, the confinement step asserts a GET of it answers 404. Leave empty to assert list confinement only."
         required: false
         default: ""
   schedule:
@@ -49,14 +65,57 @@ jobs:
           echo "Using CLI release $tag"
       - name: Sign in (connection contract)
         env:
-          THORYN_EXAMPLES_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CI_CLIENT_SECRET }}
+          THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET: ${{ secrets.THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET }}
         run: |
           set -euo pipefail
+          [ -n "${THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET:-}" ] || { echo "::error::THORYN_EXAMPLES_CONFINED_CI_CLIENT_SECRET is not set — the founder apply of .thoryn/provision.yaml mints examples-ci and delivers it (see .thoryn/README.md)"; exit 1; }
           java -jar thoryn.jar login --connection .thoryn/connection.json
           java -jar thoryn.jar login --status
+
+      # SSO-3113 (epic SSO-3108) — prove the CI identity is CONFINED, not merely that it can do its job
+      # (the thoryn-examples sibling of thoryn-cli's provision-e2e step).
+      #  1. Reads are confined (ADR 2026-09-15 §8): as examples-ci, `env list` must return EXACTLY the fixture
+      #     sandboxes .thoryn/provision.yaml grants it — nothing more (the production environment would show up
+      #     for a workspace-wide identity), nothing less (a missing fixture means the founder apply is incomplete).
+      #  2. A foreign environment answers 404 — only meaningful when its EXISTENCE is known, because by design
+      #     a foreign environment and a nonexistent one are the same 404 from examples-ci's side (no existence
+      #     oracle). So the id comes from a dispatch input set by someone who can see it, never a guessed one.
+      #     This is a GET, not a DELETE: if confinement were ever broken, a destructive probe would destroy a
+      #     real environment instead of failing the run.
+      #  (The workspace itself is pinned by the token's `tnt` claim — cross-tenant is 404; `workspace list` is
+      #   an openid-gated /account surface a client_credentials identity cannot call, so it is not asserted.)
+      - name: Assert the CI identity is confined (SSO-3113)
+        env:
+          FOREIGN_ENVIRONMENT_ID: ${{ github.event.inputs.foreign-environment-id }}
+        run: |
+          set -euo pipefail
+          expected=$(grep -oE '^\s*slug:\s*ci-[a-z0-9-]+' .thoryn/provision.yaml | awk '{print $2}' | sort)
+          [ -n "$expected" ] || { echo "::error::.thoryn/provision.yaml declares no fixture sandbox (slug: ci-*)"; exit 1; }
+          listed=$(java -jar thoryn.jar env list --output json | jq -r '(.data // .)[] | .slug' | sort)
+          echo "Environments visible to examples-ci:"; echo "$listed" | sed 's/^/  /'
+          if [ "$listed" != "$expected" ]; then
+            echo "::error::confinement broken or fixtures missing — expected examples-ci to see exactly: $(echo "$expected" | tr '\n' ' '); saw: $(echo "$listed" | tr '\n' ' ')" >&2
+            exit 1
+          fi
+          if [ -z "${FOREIGN_ENVIRONMENT_ID:-}" ]; then
+            echo "::notice::no foreign-environment-id supplied — list confinement asserted; foreign GET skipped."
+            exit 0
+          fi
+          set +e
+          body=$(java -jar thoryn.jar env get "$FOREIGN_ENVIRONMENT_ID" --output json)
+          rc=$?
+          set -e
+          status=$(echo "$body" | jq -r '.httpStatus // empty' 2>/dev/null || true)
+          if [ "$rc" -eq 0 ] || [ "$status" != "404" ]; then
+            echo "::error::confinement broken — GET of foreign environment answered rc=$rc httpStatus=${status:-none}, expected 404" >&2
+            echo "$body" >&2
+            exit 1
+          fi
+          echo "Foreign environment answered 404 — examples-ci cannot reach it."
+
       - name: Update the signed recipe catalog
         run: java -jar thoryn.jar examples update
-      - name: Apply → verify → teardown every recipe
+      - name: Apply → verify → teardown every recipe, each inside its fixture sandbox
         env:
           ONLY: ${{ github.event.inputs.recipe }}
         run: |
@@ -68,19 +127,22 @@ jobs:
             id="$(basename "$d")"
             [ -f "$d/provision.yaml" ] || continue
             [ -z "$ONLY" ] || [ "$ONLY" = "$id" ] || continue
-            echo "::group::$id"
-            args=(examples apply "$id" --set "workspaceSlug=$slug" --yes)
-            if grep -q 'kind: environment' "$d/provision.yaml"; then
-              args+=(--set "envSlug=conf-${id:0:12}-${GITHUB_RUN_ID}")
-            else
-              args+=(--set "demoEmail=conf-${GITHUB_RUN_ID}@example.com" --environment production)
+            if ! grep -q 'kind: environment' "$d/provision.yaml"; then
+              # No sandbox in the recipe yet ⇒ it runs on the production plane, which the confined identity
+              # cannot reach by design (tests/test_examples_ci_identity.py PENDING_SANDBOX_REWORK pins the
+              # allowed set). Skip loudly; it joins its fixture `ci-$id` when its gap closes (SSO-3131 / SSO-3135).
+              echo "::warning::$id has no sandbox yet — it runs on the production plane, out of examples-ci's reach; skipped until it moves into fixture ci-$id (SSO-3131, blocked on SSO-3135)"
+              continue
             fi
-            if java -jar thoryn.jar "${args[@]}" && java -jar thoryn.jar examples verify "$id"; then
+            echo "::group::$id (fixture sandbox ci-$id)"
+            if java -jar thoryn.jar examples apply "$id" --set "workspaceSlug=$slug" --set "envSlug=ci-$id" --yes \
+               && java -jar thoryn.jar examples verify "$id"; then
               echo "✓ $id"
             else
-              echo "::error::recipe $id failed on staging"; fail=1
+              echo "::error::recipe $id failed on staging (fixture ci-$id)"; fail=1
             fi
-            java -jar thoryn.jar examples teardown "$id" || echo "::warning::teardown of $id reported an error"
+            # Destroys only what this apply CREATED inside ci-$id (child-first); the adopted sandbox is never deleted.
+            java -jar thoryn.jar examples teardown "$id" || echo "::warning::teardown of $id reported an error — check for a leaked client/user inside fixture sandbox ci-$id"
             echo "::endgroup::"
           done
           exit $fail

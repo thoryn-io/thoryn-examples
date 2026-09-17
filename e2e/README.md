@@ -17,13 +17,17 @@ its orchestration, and its journey:
 | `recipes/<id>/recipe.yaml` | how to get the EXAMPLE configured — `provision: ./provision.yaml` + the extra steps beyond the provisioning (params, RP asset, `run`/`verify`) | `thoryn examples apply <id>` |
 | `recipes/<id>/e2e/*.spec.ts` | the JOURNEY — the browser walk through the real hosted screens + the recipe's RP | Playwright |
 
-Every scenario workflow is: `thoryn login --connection .thoryn/connection.json` → `examples update` →
-`examples apply <id> --set envSlug=… --yes` (provisioning first, then the recipe's extras) → journey →
-`examples teardown <id>` (destroys the provisioning child-first; the sandbox hard-delete cascades). The
-demo user's password rides only as the env var the provision file names (`DEMO_USER_PASSWORD`), which the
-workflow also hands to Playwright as `SIGNUP_PASSWORD`. simple-signin runs on the production plane and
-keeps its in-job Mailpit sink as CI plumbing (`workspace email-provider set`/`reset`). `conformance.yml`
-applies, verifies and tears down every recipe with a provision file.
+Every scenario workflow is: `thoryn login --connection .thoryn/connection.json` (as the least-privilege
+`examples-ci`, SSO-3113) → `examples update` → `examples apply <id> --set envSlug=ci-<id> --yes`
+(ADOPTS the recipe's long-lived fixture sandbox, then creates the client / demo user / sign-in config
+inside it, then the recipe's extras) → journey → `examples teardown <id>` (destroys only what the run
+created inside the fixture, child-first; an adopted sandbox is never deleted — a confined identity cannot
+create one, see [`.thoryn/README.md`](../.thoryn/README.md)). The demo user's password rides only as the
+env var the provision file names (`DEMO_USER_PASSWORD`), which the workflow also hands to Playwright as
+`SIGNUP_PASSWORD`. simple-signin still targets the production plane with its in-job Mailpit sink
+(`workspace email-provider set`/`reset`) and is expected red until SSO-3131 moves it into
+`ci-simple-signin` (blocked on SSO-3135). `conformance.yml` applies, verifies and tears down every
+sandbox recipe inside its fixture and first asserts the identity is confined to exactly those fixtures.
 
 The **reusable** pieces live here in `e2e/` and are imported by every recipe's spec, so
 there is no duplicated setup: the staging/Mailpit config + email capture (`lib/`), the one

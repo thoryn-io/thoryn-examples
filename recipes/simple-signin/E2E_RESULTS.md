@@ -6,44 +6,41 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 7 passed · 0 failed · 0 skipped (of 7).
-**Generated:** 2026-09-17T04:49:44.279Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 5 passed · 2 failed · 0 skipped (of 7).
+**Generated:** 2026-09-18T09:57:39.274Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
 **Self-service sign-up → verify email → sign in through the recipe's loopback RP (Path B)**
 
-Drives the `simple-signin` recipe's real loopback relying party against the staging SaaS in a real browser. A brand-new end user signs up on the provisioned workspace's hosted login; identity sends a genuine verification email over the tenant's BYO-SMTP, captured from an ephemeral in-job Mailpit sink (no DB injection, no stubbing); the captured link verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back to the RP's protected page, which renders the ID-token claims. It then exercises self-service PASSWORD RESET (SSO-3078): from the hosted login Forgot-your-password link the user requests a reset, the genuine reset email is captured from the same Mailpit sink, a new password is set on the reset page, and the user signs back in with it.
+Drives the `simple-signin` recipe's real loopback relying party against the staging SaaS in a real browser, inside the recipe's sandbox environment (SSO-3131). A brand-new end user signs up on the hosted login; identity generates a genuine verification email, which the sandbox captures to its test-inbox and the harness reads back via `thoryn env test-emails` (no DB injection, no stubbing); the captured link verifies the account; the user then completes the OIDC Authorization-Code + PKCE flow back to the RP's protected page, which renders the ID-token claims. It then exercises self-service PASSWORD RESET (SSO-3078): from the hosted login Forgot-your-password link the user requests a reset, the genuine reset email is captured from the same sandbox test-inbox, a new password is set on the reset page, and the user signs back in with it.
 
 ## Steps / assertions
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | RP → “Sign in with Thoryn” → the tenant hosted login renders via the workspace hub | ✅ passed |
+| 1 | RP → “Sign in with Thoryn” → the tenant hosted login renders via the sandbox issuer | ✅ passed |
 | 2 | Follow the self-service sign-up path and register a brand-new end user | ✅ passed |
-| 3 | Capture the REAL verification email from the in-job Mailpit sink | ✅ passed |
+| 3 | Capture the REAL verification email from the sandbox test-inbox | ✅ passed |
 | 4 | Follow the captured verify-email link → “Your email is verified” | ✅ passed |
 | 5 | Return to the RP, sign in with the verified creds → land on /protected | ✅ passed |
 | 6 | Forgot password: on the hosted login, follow “Forgot your password?” → request a reset | ✅ passed |
-| 7 | Capture the REAL password-reset email from the in-job Mailpit sink | ✅ passed |
+| 7 | Capture the REAL password-reset email from the sandbox test-inbox | ✅ passed |
 | 8 | Follow the captured reset link → set a NEW password → “password updated” | ✅ passed |
 | 9 | Sign in with the NEW password → land back on /protected | ✅ passed |
 | 10 | Register + verify a fresh end user to lock | ✅ passed |
 | 11 | Five consecutive wrong-password attempts lock the account | ✅ passed |
 | 12 | Request an unlock link via the login 'Unlock via email' affordance | ✅ passed |
-| 13 | Capture the unlock email and confirm on the landing page | ✅ passed |
-| 14 | Sign in with the correct password → land back on /protected | ✅ passed |
-| 15 | Sign in → land on the RP protected page | ✅ passed |
-| 16 | Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home | ✅ passed |
-| 17 | A WRONG password on a registered account shows the neutral 'invalid' error | ✅ passed |
-| 18 | An UNKNOWN email shows the IDENTICAL error — no user-existence oracle | ✅ passed |
-| 19 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
-| 20 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
-| 21 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
-| 22 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ✅ passed |
-| 23 | Device A sees BOTH sessions — exactly one is its own (current) device | ✅ passed |
-| 24 | Device A signs device B out, and B's session disappears from the account | ✅ passed |
+| 13 | Capture the unlock email and confirm on the landing page | ❌ failed |
+| 14 | Sign in → land on the RP protected page | ✅ passed |
+| 15 | Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home | ✅ passed |
+| 16 | A WRONG password on a registered account shows the neutral 'invalid' error | ✅ passed |
+| 17 | An UNKNOWN email shows the IDENTICAL error — no user-existence oracle | ✅ passed |
+| 18 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
+| 19 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
+| 20 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
+| 21 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ❌ failed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
 
@@ -51,25 +48,40 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 21.7s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 34.4s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 9.8s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 8.7s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.3s |
-| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ✅ passed | 17.0s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 25.5s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ❌ failed | 102.7s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.8s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 9.8s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.5s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 10.7s |
 | error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
+
+## Diagnostics
+
+```
+[account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905)] Error: unlock email to example-signin-1789725296568-269465@thoryn.test captured from the test-inbox of sandbox ci-simple-signin
+
+[2mexpect([22m[31mreceived[39m[2m).[22mnot[2m.[22mtoBeNull[2m()[22m
+
+Received: [31mnull[39m
+[session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083)] Error: the app can read the user's sessions with its access token
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+Expected: [32m200[39m
+Received: [31m401[39m
+```
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org |
+| Issuer | examples.hub.stg.thoryn.org/ci-simple-signin |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
-| Mail sink (local API) | http://localhost:8025 |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35183211332)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35331825691)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

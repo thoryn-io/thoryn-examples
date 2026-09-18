@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           expected=$(grep -oE '^\s*slug:\s*ci-[a-z0-9-]+' .thoryn/provision.yaml | awk '{print $2}' | sort)
           [ -n "$expected" ] || { echo "::error::.thoryn/provision.yaml declares no fixture sandbox (slug: ci-*)"; exit 1; }
-          listed=$(java -jar thoryn.jar env list --output json | jq -r '(.data // .)[] | .slug' | sort)
+          listed=$(java -jar thoryn.jar env list --output json | jq -r '(if type == "array" then . else .data end)[] | .slug' | sort)
           echo "Environments visible to examples-ci:"; echo "$listed" | sed 's/^/  /'
           if [ "$listed" != "$expected" ]; then
             echo "::error::confinement broken or fixtures missing — expected examples-ci to see exactly: $(echo "$expected" | tr '\n' ' '); saw: $(echo "$listed" | tr '\n' ' ')" >&2

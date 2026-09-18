@@ -307,7 +307,19 @@ test.describe("simple-signin example — self-service sign-up → verify email �
           await startSignInFromRp(page);
           await expect(page.locator("#passwordForm")).toBeVisible();
           for (let i = 0; i < 5; i++) {
+            // SSO-3131: wait for the rejected POST to actually RE-RENDER the login page before the next
+            // step. `#passwordForm` is already visible on the page being submitted, so asserting it alone
+            // passes before the navigation commits — the next step (the 5th attempt → the unlock toggle)
+            // then clicks on the OLD document, the navigation replaces it, and the fresh `#unlockForm` is
+            // still `hidden` (run 35331825691, attempt 1: `#unlockEmail` never visible). Mark the current
+            // document and wait until a new one has replaced it.
+            await page.evaluate(() => {
+              (window as unknown as { __preSubmit?: boolean }).__preSubmit = true;
+            });
             await submitLoginWith(page, email, `wrong-password-${i}`);
+            await page.waitForFunction(() => !(window as unknown as { __preSubmit?: boolean }).__preSubmit, undefined, {
+              timeout: 30_000,
+            });
             await expect(
               page.locator("#passwordForm"),
               "a rejected password re-renders the login form (generic error, no lock-state leak)",

@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-17T06:55:37.428Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-09-20T06:54:13.333Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -22,8 +22,8 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 |---|------|--------|
 | 1 | Enable magic-code for the sandbox (thoryn login-methods set --method magic_code) | ✅ passed |
 | 2 | On the hosted login, request a 6-digit code (email me a code) | ✅ passed |
-| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ✅ passed |
-| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ✅ passed |
+| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ❌ failed |
+| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ⏭️ skipped |
 
 **Error path also covered:** A wrong 6-digit code is rejected at the hosted magic-code challenge
 
@@ -31,19 +31,31 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 14.1s |
-| error path: a wrong code is rejected at the magic-code challenge | ✅ passed | 3.7s |
+| full journey: enable magic-code → request a code → type it → /protected | ❌ failed | 65.2s |
+| error path: a wrong code is rejected at the magic-code challenge | ⏱️ timed out | 180.1s |
+
+## Diagnostics
+
+```
+[full journey: enable magic-code → request a code → type it → /protected] Error: the sandbox test-inbox captures the magic-code on channel magic_code
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+Received: [31mnull[39m
+[error path: a wrong code is rejected at the magic-code challenge] [31mTest timeout of 180000ms exceeded.[39m
+[error path: a wrong code is rejected at the magic-code challenge] Error: browserContext.close: Target page, context or browser has been closed
+```
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/magic-code-35191936320-1 |
+| Issuer | examples.hub.stg.thoryn.org/ci-magic-code-signin |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35191936320)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35495212428)
 - [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

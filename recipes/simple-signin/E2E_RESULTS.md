@@ -7,8 +7,8 @@
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
-**Tests:** 5 passed · 2 failed · 0 skipped (of 7).
-**Generated:** 2026-09-18T09:57:39.274Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Tests:** 6 passed · 1 failed · 0 skipped (of 7).
+**Generated:** 2026-09-20T04:48:25.570Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -32,15 +32,16 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 | 10 | Register + verify a fresh end user to lock | ✅ passed |
 | 11 | Five consecutive wrong-password attempts lock the account | ✅ passed |
 | 12 | Request an unlock link via the login 'Unlock via email' affordance | ✅ passed |
-| 13 | Capture the unlock email and confirm on the landing page | ❌ failed |
-| 14 | Sign in → land on the RP protected page | ✅ passed |
-| 15 | Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home | ✅ passed |
-| 16 | A WRONG password on a registered account shows the neutral 'invalid' error | ✅ passed |
-| 17 | An UNKNOWN email shows the IDENTICAL error — no user-existence oracle | ✅ passed |
-| 18 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
-| 19 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
-| 20 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
-| 21 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ❌ failed |
+| 13 | Capture the unlock email and confirm on the landing page | ✅ passed |
+| 14 | Sign in with the correct password → land back on /protected | ✅ passed |
+| 15 | Sign in → land on the RP protected page | ✅ passed |
+| 16 | Sign out drops the RP session and RP-Initiated Logout returns the browser to the RP home | ✅ passed |
+| 17 | A WRONG password on a registered account shows the neutral 'invalid' error | ✅ passed |
+| 18 | An UNKNOWN email shows the IDENTICAL error — no user-existence oracle | ✅ passed |
+| 19 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
+| 20 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
+| 21 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
+| 22 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ❌ failed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
 
@@ -48,22 +49,17 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 25.5s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ❌ failed | 102.7s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.8s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 9.8s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.5s |
-| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 10.7s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 25.9s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 35.1s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.5s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 10.3s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.8s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 11.3s |
 | error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
 
 ## Diagnostics
 
 ```
-[account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905)] Error: unlock email to example-signin-1789725296568-269465@thoryn.test captured from the test-inbox of sandbox ci-simple-signin
-
-[2mexpect([22m[31mreceived[39m[2m).[22mnot[2m.[22mtoBeNull[2m()[22m
-
-Received: [31mnull[39m
 [session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083)] Error: the app can read the user's sessions with its access token
 
 [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
@@ -82,6 +78,6 @@ Received: [31m401[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35331825691)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35489927136)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

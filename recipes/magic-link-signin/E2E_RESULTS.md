@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-link-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-17T06:40:29.088Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-09-20T06:37:35.312Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -21,8 +21,8 @@ Drives the `magic-link-signin` recipe's loopback relying party against the stagi
 | # | Step | Result |
 |---|------|--------|
 | 1 | Request a passwordless sign-in link on the hosted login (sets the ML_INIT device cookie) | ✅ passed |
-| 2 | Capture the single-use magic link from the sandbox test inbox (channel magic_link) | ✅ passed |
-| 3 | Open the link on the SAME device → authenticated → OAuth resumes → /protected | ✅ passed |
+| 2 | Capture the single-use magic link from the sandbox test inbox (channel magic_link) | ❌ failed |
+| 3 | Open the link on the SAME device → authenticated → OAuth resumes → /protected | ⏭️ skipped |
 
 **Error path also covered:** An invalid/expired magic-link token does not sign the user in
 
@@ -30,19 +30,34 @@ Drives the `magic-link-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: request a magic link → open it on the same device → /protected | ✅ passed | 8.1s |
-| error path: an invalid/expired magic link does not sign the user in | ✅ passed | 4.8s |
+| full journey: request a magic link → open it on the same device → /protected | ❌ failed | 58.9s |
+| error path: an invalid/expired magic link does not sign the user in | ❌ failed | 57.9s |
+
+## Diagnostics
+
+```
+[full journey: request a magic link → open it on the same device → /protected] Error: the magic-link email is captured in the sandbox test inbox (channel magic_link)
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+Received: [31mnull[39m
+[error path: an invalid/expired magic link does not sign the user in] Error: the magic-link email is captured in the sandbox test inbox (channel magic_link)
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+Received: [31mnull[39m
+```
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/magic-link-35190787442-1 |
+| Issuer | examples.hub.stg.thoryn.org/ci-magic-link-signin |
 | Relying party | http://127.0.0.1:8471 |
 | Identity host | https://identity.stg.thoryn.org |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35190787442)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35494592251)
 - [Playwright HTML report (CI artifact)](the `magic-link-signin-e2e-playwright-report` artifact on the CI run)
 

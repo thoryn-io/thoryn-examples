@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/magic-link-cross-device-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-20T06:45:46.297Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-21T07:01:52.688Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -31,8 +31,8 @@ Drives the `magic-link-cross-device-signin` recipe's loopback relying party agai
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: A requests → B shows a continuation code → redeem on A → /protected | ❌ failed | 59.2s |
-| error path: a wrong continuation code is rejected on the initiating device | ❌ failed | 57.9s |
+| full journey: A requests → B shows a continuation code → redeem on A → /protected | ❌ failed | 59.9s |
+| error path: a wrong continuation code is rejected on the initiating device | ❌ failed | 62.8s |
 
 ## Diagnostics
 
@@ -59,6 +59,6 @@ Received: [31mnull[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35494937243)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35570779002)
 - [Playwright HTML report (CI artifact)](the `magic-link-cross-device-e2e-playwright-report` artifact on the CI run)
 

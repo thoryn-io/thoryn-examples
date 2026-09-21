@@ -7,8 +7,8 @@
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
-**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-20T06:54:13.333Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-21T07:07:10.738Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -31,8 +31,8 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: enable magic-code → request a code → type it → /protected | ❌ failed | 65.2s |
-| error path: a wrong code is rejected at the magic-code challenge | ⏱️ timed out | 180.1s |
+| full journey: enable magic-code → request a code → type it → /protected | ❌ failed | 66.4s |
+| error path: a wrong code is rejected at the magic-code challenge | ✅ passed | 3.4s |
 
 ## Diagnostics
 
@@ -42,8 +42,6 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
 
 Received: [31mnull[39m
-[error path: a wrong code is rejected at the magic-code challenge] [31mTest timeout of 180000ms exceeded.[39m
-[error path: a wrong code is rejected at the magic-code challenge] Error: browserContext.close: Target page, context or browser has been closed
 ```
 
 ## Environment
@@ -56,6 +54,6 @@ Received: [31mnull[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35495212428)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35571258891)
 - [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

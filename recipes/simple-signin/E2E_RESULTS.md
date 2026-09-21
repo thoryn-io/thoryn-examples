@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 6 passed · 1 failed · 0 skipped (of 7).
-**Generated:** 2026-09-20T04:48:25.570Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-21T04:52:38.612Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -49,13 +49,13 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 25.9s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 35.1s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.5s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 10.3s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.8s |
-| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 11.3s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 24.0s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 38.6s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 11.9s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 11.5s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 17.4s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 11.7s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.6s |
 
 ## Diagnostics
 
@@ -78,6 +78,6 @@ Received: [31m401[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35489927136)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35562365294)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

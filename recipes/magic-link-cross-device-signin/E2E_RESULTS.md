@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-link-cross-device-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-09-21T07:01:52.688Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
+**Generated:** 2026-09-21T10:26:25.079Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -21,9 +21,9 @@ Drives the `magic-link-cross-device-signin` recipe's loopback relying party agai
 | # | Step | Result |
 |---|------|--------|
 | 1 | Device A requests a passwordless sign-in link (sets the ML_INIT initiating-device cookie) | ✅ passed |
-| 2 | Capture the single-use magic link from the sandbox test inbox (channel magic_link) | ❌ failed |
-| 3 | Device B (no ML_INIT) opens the link → NOT signed in → shows a continuation code | ⏭️ skipped |
-| 4 | Redeem the code on Device A (the initiator) → sign-in completes → /protected | ⏭️ skipped |
+| 2 | Capture the single-use magic link from the sandbox test inbox (channel magic_link) | ✅ passed |
+| 3 | Device B (no ML_INIT) opens the link → NOT signed in → shows a continuation code | ✅ passed |
+| 4 | Redeem the code on Device A (the initiator) → sign-in completes → /protected | ✅ passed |
 
 **Error path also covered:** A wrong continuation code is rejected on the initiating device
 
@@ -31,23 +31,8 @@ Drives the `magic-link-cross-device-signin` recipe's loopback relying party agai
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: A requests → B shows a continuation code → redeem on A → /protected | ❌ failed | 59.9s |
-| error path: a wrong continuation code is rejected on the initiating device | ❌ failed | 62.8s |
-
-## Diagnostics
-
-```
-[full journey: A requests → B shows a continuation code → redeem on A → /protected] Error: the magic-link email is captured in the sandbox test inbox (channel magic_link)
-
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
-
-Received: [31mnull[39m
-[error path: a wrong continuation code is rejected on the initiating device] Error: the magic-link email is captured in the sandbox test inbox (channel magic_link)
-
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
-
-Received: [31mnull[39m
-```
+| full journey: A requests → B shows a continuation code → redeem on A → /protected | ✅ passed | 10.3s |
+| error path: a wrong continuation code is rejected on the initiating device | ✅ passed | 7.2s |
 
 ## Environment
 
@@ -59,6 +44,6 @@ Received: [31mnull[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35570779002)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35588625980)
 - [Playwright HTML report (CI artifact)](the `magic-link-cross-device-e2e-playwright-report` artifact on the CI run)
 

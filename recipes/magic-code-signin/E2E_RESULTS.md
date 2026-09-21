@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
-**Generated:** 2026-09-21T07:07:10.738Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
+**Generated:** 2026-09-21T10:16:28.609Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -22,8 +22,8 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 |---|------|--------|
 | 1 | Enable magic-code for the sandbox (thoryn login-methods set --method magic_code) | ✅ passed |
 | 2 | On the hosted login, request a 6-digit code (email me a code) | ✅ passed |
-| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ❌ failed |
-| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ⏭️ skipped |
+| 3 | Capture the code from the sandbox test-inbox (channel magic_code) | ✅ passed |
+| 4 | Type the captured code → passwordless sign-in reaches the RP protected page | ✅ passed |
 
 **Error path also covered:** A wrong 6-digit code is rejected at the hosted magic-code challenge
 
@@ -31,18 +31,8 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: enable magic-code → request a code → type it → /protected | ❌ failed | 66.4s |
-| error path: a wrong code is rejected at the magic-code challenge | ✅ passed | 3.4s |
-
-## Diagnostics
-
-```
-[full journey: enable magic-code → request a code → type it → /protected] Error: the sandbox test-inbox captures the magic-code on channel magic_code
-
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
-
-Received: [31mnull[39m
-```
+| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 16.9s |
+| error path: a wrong code is rejected at the magic-code challenge | ✅ passed | 4.3s |
 
 ## Environment
 
@@ -54,6 +44,6 @@ Received: [31mnull[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35571258891)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35587357392)
 - [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

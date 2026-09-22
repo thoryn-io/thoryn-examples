@@ -98,6 +98,34 @@ repo_ at runtime — is the remaining roadmap item _(SSO-2871)_.
 teardown** against staging with the real `thoryn` CLI, so a product change that breaks the recipe's
 product-API contract fails here — a red recipe blocks a release.
 
+### The host word: `{slug}.auth.<domain>` (SSO-3296, epic SSO-3289)
+
+The public authentication host is moving from `{slug}.hub.<domain>` to **`{slug}.auth.<domain>`**, and
+the hosted sign-in screens move onto that same origin under `/id` (ADR
+[`2026-09-22-public-issuer-host-auth-subdomain`](https://github.com/thoryn-io/oauthy/blob/main/adrs/2026-09-22-public-issuer-host-auth-subdomain.md)).
+`hub` stays the name of an internal component; it was never a word a customer should have to learn.
+
+**Nothing in this repo hard-codes either word.** Every workflow derives its hosts from one repo
+variable:
+
+```
+THORYN_TENANT_HOST_LABEL     unset -> `hub`  (what staging serves TODAY)
+                             `auth`          (after the SSO-3297 cutover)
+```
+
+| | pre-cutover (today) | post-cutover |
+|---|---|---|
+| base issuer | `https://hub.stg.thoryn.org` | `https://auth.stg.thoryn.org` |
+| workspace issuer | `https://examples.hub.stg.thoryn.org` | `https://examples.auth.stg.thoryn.org` |
+| sandbox issuer | `…/{env}` | `…/{env}` (**path form unchanged**) |
+| hosted sign-in | `https://identity.stg.thoryn.org` | `https://examples.auth.stg.thoryn.org/id` |
+
+> The samples in the recipe READMEs show the **`auth.`** shape (the settled destination). Staging still
+> answers `hub.stg.thoryn.org` until the cutover — but you never type these by hand: `examples apply`
+> reports the real issuer in its receipt, and the workflows compute it from the variable.
+
+`e2e/conformance/` holds the RFC-conformance rows for this surface (see below).
+
 **CLI source.** The workflow downloads the prebuilt `thoryn.jar` from the **latest `cli-v*` release of
 [`thoryn-io/thoryn-cli`](https://github.com/thoryn-io/thoryn-cli)** (which bundles the `ci-signin`
 recipe it applies). The CLI is no longer built from the `oathy` monorepo.
@@ -106,7 +134,7 @@ recipe it applies). The CLI is no longer built from the `oathy` monorepo.
 **customer-plane `client_credentials` API key** the operator mints themselves — the model proven in
 `thoryn-cli`'s provisioning Action. No GitHub OIDC, no `id-token` permission, no private signing key.
 The key is **tenant-scoped** (bound to one **standing workspace** via its `tnt` claim) and signs in at
-that workspace's per-tenant issuer (`https://<slug>.hub.stg.thoryn.org`).
+that workspace's per-tenant issuer (`https://<slug>.<label>.stg.thoryn.org` — see *The host word* below).
 
 > **Coverage note.** A tenant-scoped API key **cannot create workspaces** (workspace-create needs a
 > machine scope a tenant admin can't delegate — the **SSO-2943** gap). So conformance no longer runs
@@ -216,7 +244,7 @@ once as a tenant admin (commands target staging; adjust the issuer for another e
 
 ```bash
 # 0) Sign in interactively as a tenant admin (authorization-code + PKCE, opens a browser).
-thoryn login --issuer https://hub.stg.thoryn.org
+thoryn login --issuer https://hub.stg.thoryn.org   # ...auth.stg.thoryn.org after the cutover
 
 # 1) Create the STANDING workspace the CI runs provision into (skip if it exists).
 thoryn workspace create --slug ci-conformance --display-name "CI conformance"
@@ -264,7 +292,7 @@ update `THORYN_API_KEY`.
 touch oauthy):
 
 - Confirm the hub **issues a usable tenant-scoped token** for a customer-plane `client_credentials`
-  client registered in a non-default tenant, authenticating at `https://<slug>.hub.stg.thoryn.org` —
+  client registered in a non-default tenant, authenticating at `https://<slug>.<label>.stg.thoryn.org` —
   the whole model turns on this.
 - A tenant-scoped key **cannot create workspaces**, so conformance runs the workspace-less `ci-signin`
   recipe and example-e2e leaks one self-service test user per run into the standing workspace (no

@@ -115,6 +115,8 @@ test and `conformance.yml`.
 #    `thoryn-cli` is the platform login client homed at the default tenant; it resolves cross-tenant, so
 #    `--workspace examples` signs you straight into `examples`. No `workspace switch` is needed (it was
 #    broken until SSO-3121).
+# SSO-3296 — `--issuer` names the platform BASE issuer; it becomes https://auth.stg.thoryn.org at
+#    the SSO-3297 cutover. The CLI composes `examples.<that host>` from it, reusing its host label.
 thoryn login --workspace examples --issuer https://hub.stg.thoryn.org --client-id thoryn-cli \
   --scope "openid offline_access tenant:environments.read tenant:environments.write tenant:applications.read tenant:applications.write tenant:users.read tenant:users.write tenant:idp.read tenant:idp.write tenant:access.read tenant:access.write"
 

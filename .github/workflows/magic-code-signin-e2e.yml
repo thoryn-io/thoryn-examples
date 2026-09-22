@@ -33,9 +33,20 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  THORYN_HUB: https://hub.stg.thoryn.org
+  # SSO-3296 (epic SSO-3289) — the public auth host moves `{slug}.hub.<domain>` -> `{slug}.auth.<domain>`
+  # (ADR 2026-09-22-public-issuer-host-auth-subdomain). Every host below is derived from ONE repo
+  # variable, so the SSO-3297 staging cutover is a single flip and no workflow file changes:
+  #     gh variable set THORYN_TENANT_HOST_LABEL --body auth
+  # Unset (today) it defaults to `hub`, which is what staging still serves — so nothing here moves
+  # until the product owner flips it.
+  THORYN_TENANT_HOST_LABEL: ${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}
+  THORYN_PLATFORM_APEX: stg.thoryn.org
+  # `THORYN_ISSUER` is the documented name (SSO-3296); `THORYN_HUB` is kept because the CURRENTLY
+  # RELEASED CLI jar this workflow downloads only reads the old spelling. Drop it after a cli-v*
+  # release carrying thoryn-cli#79.
+  THORYN_ISSUER: https://${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}.stg.thoryn.org
+  THORYN_HUB: https://${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}.stg.thoryn.org
   THORYN_GATEWAY: https://api.stg.thoryn.org
-  IDENTITY_BASE_URL: https://identity.stg.thoryn.org
   RECIPE: magic-code-signin
   THORYN_CI_PLAINTEXT_TOKENS: "1"
   RP_PORT: "8471"
@@ -108,10 +119,22 @@ jobs:
           java -jar thoryn.jar examples receipt "$RECIPE" --output json > /tmp/receipt.json
           client="$(jq -r '[.resources[]? | select(.kind=="application") | .id] | first // ""' /tmp/receipt.json)"
           [ -n "$client" ] || { echo "::error::could not parse the clientId from the recipe receipt"; cat /tmp/receipt.json; exit 1; }
-          # Per-env issuer = workspace issuer + /{env-slug} path (SecurityConfig, SSO-2411).
-          issuer="https://${slug}.hub.stg.thoryn.org/${E2E_ENV_SLUG}"
+          # Per-env issuer = workspace issuer + /{env-slug} PATH (SecurityConfig, SSO-2411). SSO-3296 —
+          # the host LABEL comes from THORYN_TENANT_HOST_LABEL, never hard-coded; the `/{env}` path form
+          # is unchanged by the host rename (ADR §3).
+          workspace_issuer="https://${slug}.${THORYN_TENANT_HOST_LABEL}.${THORYN_PLATFORM_APEX}"
+          issuer="${workspace_issuer}/${E2E_ENV_SLUG}"
+          # The hosted sign-in screens: a SEPARATE host pre-cutover, same-origin under `/id` after it
+          # (ADR §2 — identity mounts on the workspace host at its `/id` context path).
+          if [ "$THORYN_TENANT_HOST_LABEL" = "hub" ]; then
+            identity_base_url="https://identity.${THORYN_PLATFORM_APEX}"
+          else
+            identity_base_url="${workspace_issuer}/id"
+          fi
           {
             echo "issuer=$issuer"
+            echo "workspace_issuer=$workspace_issuer"
+            echo "identity_base_url=$identity_base_url"
             echo "client_id=$client"
             echo "workspace_slug=$slug"
           } >> "$GITHUB_OUTPUT"
@@ -135,7 +158,7 @@ jobs:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           RP_BASE_URL: http://127.0.0.1:${{ env.RP_PORT }}
-          IDENTITY_BASE_URL: ${{ env.IDENTITY_BASE_URL }}
+          IDENTITY_BASE_URL: ${{ steps.apply.outputs.identity_base_url }}
           THORYN_JAR: ${{ github.workspace }}/thoryn.jar
           SANDBOX_ENV_SLUG: ${{ env.E2E_ENV_SLUG }}
           SIGNUP_PASSWORD: ${{ env.DEMO_USER_PASSWORD }}

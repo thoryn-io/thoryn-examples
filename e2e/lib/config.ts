@@ -5,7 +5,10 @@
  * workflow injects (a fresh workspace vs. a per-run sandbox per-env issuer), not in the
  * harness.
  *
- * Defaults target the STAGING SaaS (hub.stg.thoryn.org / identity.stg.thoryn.org).
+ * Defaults target the STAGING SaaS. SSO-3296 — the workflows no longer hard-code the host word:
+ * they derive every host from the `THORYN_TENANT_HOST_LABEL` repo variable (`hub` today,
+ * `auth` after the SSO-3297 cutover) and pass the result in, so the defaults below are only a
+ * convenience for a hand-run local session.
  * Every value is overridable by env so the same harness runs in CI (example-e2e.yml /
  * sandbox-e2e.yml) and locally against an issuer/client you provisioned by hand.
  *
@@ -36,7 +39,7 @@ export const config = {
   rpBaseUrl: process.env.RP_BASE_URL ?? "http://127.0.0.1:8471",
 
   /**
-   * The workspace hub issuer the recipe provisioned (`{slug}.hub.stg.thoryn.org`).
+   * The workspace issuer the recipe provisioned (`{slug}.<label>.stg.thoryn.org`).
    * The RP redirects here for /oauth2/authorize; the harness uses it only to
    * sanity-check the redirect target.
    */
@@ -56,6 +59,9 @@ export const config = {
    * the host into the click-path; this value is the fallback/verify-link host and
    * is overridden by IDENTITY_BASE_URL in CI once confirmed.
    */
+  // SSO-3296 — CI COMPUTES this (the apply step's `identity_base_url` output): a separate host
+  // pre-cutover, and the same-origin `{workspace issuer}/id` mount afterwards (ADR §2). The literal
+  // below is only the pre-cutover local-run fallback.
   identityBaseUrl: process.env.IDENTITY_BASE_URL ?? "https://identity.stg.thoryn.org",
 
   /** Ephemeral in-job Mailpit sink (see `mailpit` above). */

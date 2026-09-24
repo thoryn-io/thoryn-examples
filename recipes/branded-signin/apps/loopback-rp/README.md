@@ -74,7 +74,7 @@ you land on `/protected` showing your ID-token claims.
 
 | Env var | Required | Default | Description |
 |---|---|---|---|
-| `THORYN_ISSUER` | yes | — | The sandbox environment's hub issuer, e.g. `https://sbx-signin-ab12cd34.hub.stg.thoryn.org`. |
+| `THORYN_ISSUER` | yes | — | The sandbox environment's issuer, e.g. `https://sbx-signin-ab12cd34.auth.stg.thoryn.org`. |
 | `THORYN_CLIENT_ID` | yes | — | The public client id the recipe created in the sandbox, e.g. `app-XXXXXXXX`. |
 | `THORYN_SCOPE` | no | `openid profile email` | Requested scopes. |
 | `PORT` | no | `8471` | Local loopback port to listen on. |

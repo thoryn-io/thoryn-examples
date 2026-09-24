@@ -173,6 +173,7 @@ RP_BASE_URL=http://127.0.0.1:8471 \
 THORYN_ISSUER=https://<workspace-or-sandbox-issuer> \
 THORYN_CLIENT_ID=app-XXXXXXXX \
 IDENTITY_BASE_URL=https://identity.stg.thoryn.org \
+# ^ after the SSO-3297 cutover: https://<workspace>.auth.stg.thoryn.org/id (same origin as the issuer)
 MAILPIT_BASE_URL=http://localhost:8025 \
 npm run install-browser && npm run test:simple     # or: npm run test:sandbox
 ```
@@ -227,7 +228,7 @@ inside the job, and its SMTP password is generated per run.
 
 - **Tenant-scoped API-key sign-in** — that the staging hub issues a usable token for the
   customer-plane `client_credentials` key authenticating at the standing workspace's
-  per-tenant issuer `https://<slug>.hub.stg.thoryn.org` (the model turns on this — SSO-2943).
+  per-tenant issuer `https://<slug>.<label>.stg.thoryn.org` (the model turns on this — SSO-2943).
 - **The tenant self-service-signup entry** — that the standing workspace's identity
   member exposes a self-service "Sign up" link from its hosted login, and its exact
   accessible name / form selectors (`gotoRegisterFromLogin`).

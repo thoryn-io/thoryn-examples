@@ -41,7 +41,19 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  THORYN_HUB: https://hub.stg.thoryn.org
+  # SSO-3296 (epic SSO-3289) — the public auth host moves `{slug}.hub.<domain>` -> `{slug}.auth.<domain>`
+  # (ADR 2026-09-22-public-issuer-host-auth-subdomain). Every host below is derived from ONE repo
+  # variable, so the SSO-3297 staging cutover is a single flip and no workflow file changes:
+  #     gh variable set THORYN_TENANT_HOST_LABEL --body auth
+  # Unset (today) it defaults to `hub`, which is what staging still serves — so nothing here moves
+  # until the product owner flips it.
+  THORYN_TENANT_HOST_LABEL: ${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}
+  THORYN_PLATFORM_APEX: stg.thoryn.org
+  # `THORYN_ISSUER` is the documented name (SSO-3296); `THORYN_HUB` is kept because the CURRENTLY
+  # RELEASED CLI jar this workflow downloads only reads the old spelling. Drop it after a cli-v*
+  # release carrying thoryn-cli#79.
+  THORYN_ISSUER: https://${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}.stg.thoryn.org
+  THORYN_HUB: https://${{ vars.THORYN_TENANT_HOST_LABEL || 'hub' }}.stg.thoryn.org
   THORYN_CI_PLAINTEXT_TOKENS: "1"
 
 jobs:
@@ -147,3 +159,24 @@ jobs:
             echo "::endgroup::"
           done
           exit $fail
+
+      # SSO-3296 (epic SSO-3289) — RFC-conformance rows for the PUBLIC ISSUER HOST, keyed by RFC +
+      # section with the spec URL printed on failure (e2e/conformance/issuer-host.catalog.mjs).
+      #
+      # Deliberately the LAST step, and `if: always()`, so a red row can never stop a recipe from being
+      # applied, verified or TORN DOWN — a conformance regression must not leak a fixture.
+      #
+      # Every expectation is derived from THORYN_ISSUER + the slugs, never from a literal host word, so
+      # these rows are green before AND after the SSO-3297 cutover. The one row that is only meaningful
+      # afterwards (the retired host must answer 410 Gone, never redirect) reports SKIP until
+      # THORYN_TENANT_HOST_LABEL says `auth`.
+      - name: Issuer-host RFC conformance (SSO-3296)
+        if: always()
+        run: |
+          set -euo pipefail
+          THORYN_WORKSPACE_SLUG="$(jq -r '.workspace.slug' .thoryn/connection.json)"
+          # Assert the `/{env}` form against a REAL fixture sandbox (the first one the provisioning file
+          # declares); empty => the sandbox rows report SKIP rather than a false green.
+          THORYN_CONFORMANCE_ENV="$(grep -oE '^\s*slug:\s*ci-[a-z0-9-]+' .thoryn/provision.yaml | awk '{print $2}' | sort | head -1)"
+          export THORYN_WORKSPACE_SLUG THORYN_CONFORMANCE_ENV
+          node e2e/conformance/run.mjs

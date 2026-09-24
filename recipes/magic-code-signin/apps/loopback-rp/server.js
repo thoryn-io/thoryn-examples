@@ -28,7 +28,7 @@
  *   GET /logout     drop the session and go home.
  *
  * Configure it with three values from your recipe receipt / `thoryn` output:
- *   THORYN_ISSUER    e.g. https://ex-signin-ab12cd34.hub.stg.thoryn.org
+ *   THORYN_ISSUER    e.g. https://ex-signin-ab12cd34.auth.stg.thoryn.org
  *   THORYN_CLIENT_ID e.g. app-XXXXXXXX  (the public client the recipe created)
  *   PORT             the loopback port to listen on (default 8471)
  *

@@ -151,6 +151,10 @@ jobs:
           THORYN_ISSUER: ${{ steps.apply.outputs.issuer }}
           THORYN_CLIENT_ID: ${{ steps.apply.outputs.client_id }}
           PORT: ${{ env.RP_PORT }}
+          # The RP's /sessions proxy calls {IDENTITY_BASE_URL}/api/v1/me/sessions (SSO-3083) and answers
+          # 501 when it is unset. It used to inherit the workflow-level value that SSO-3296 (#88) replaced
+          # with this per-step output, so it must be passed here explicitly too.
+          IDENTITY_BASE_URL: ${{ steps.apply.outputs.identity_base_url }}
         run: |
           node recipes/simple-signin/apps/loopback-rp/server.js &
           echo "RP_PID=$!" >> "$GITHUB_ENV"

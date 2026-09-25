@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 6 passed · 1 failed · 0 skipped (of 7).
-**Generated:** 2026-09-25T12:22:26.215Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 7 passed · 0 failed · 0 skipped (of 7).
+**Generated:** 2026-09-25T12:51:47.602Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -41,7 +41,9 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 | 19 | Baseline: a WRONG password on the (still active) account shows the generic invalid error | ✅ passed |
 | 20 | Suspend the user through the supported `thoryn users suspend` surface | ✅ passed |
 | 21 | The suspended account's sign-in shows the DISTINCT suspended notice | ✅ passed |
-| 22 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ❌ failed |
+| 22 | Both devices sign in and register their session with the CIAM (via the RP /sessions proxy) | ✅ passed |
+| 23 | Device A sees BOTH sessions — exactly one is its own (current) device | ✅ passed |
+| 24 | Device A signs device B out, and B's session disappears from the account | ✅ passed |
 
 **Error path also covered:** A garbage verify-email token shows the neutral “this link is invalid” screen
 
@@ -49,24 +51,13 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 22.5s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 34.9s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.4s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 10.4s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.9s |
-| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ❌ failed | 10.4s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.6s |
-
-## Diagnostics
-
-```
-[session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083)] Error: the app can read the user's sessions with its access token
-
-[2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
-
-Expected: [32m200[39m
-Received: [31m401[39m
-```
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 22.1s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 35.3s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 10.2s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 9.9s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 15.6s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ✅ passed | 16.6s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
 
 ## Environment
 
@@ -78,6 +69,6 @@ Received: [31m401[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36134258051)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36137039839)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

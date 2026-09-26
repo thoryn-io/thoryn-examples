@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 4 passed · 0 failed · 0 skipped (of 4).
-**Generated:** 2026-09-24T05:48:53.508Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 2 skipped (of 4).
+**Generated:** 2026-09-26T05:47:39.395Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -21,12 +21,8 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 | # | Step | Result |
 |---|------|--------|
 | 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
-| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ✅ passed |
-| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ✅ passed |
-| 4 | Sign in (password + TOTP challenge) to reach the account portal | ✅ passed |
-| 5 | Regenerate recovery codes on /account/security — a fresh set of 5, distinct from the previous set | ✅ passed |
-| 6 | Disable MFA on the hosted /account/security page (re-auth: current password + live TOTP code) | ✅ passed |
-| 7 | A fresh sign-in is now PASSWORD-ONLY — no second-factor challenge | ✅ passed |
+| 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ❌ failed |
+| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ⏭️ skipped |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
 
@@ -34,21 +30,38 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ✅ passed | 14.9s |
-| error path: a wrong TOTP code is rejected at the challenge | ✅ passed | 6.7s |
-| recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ✅ passed | 9.2s |
-| MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ✅ passed | 9.3s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 10.4s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 36.2s |
+| recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ⏭️ skipped | 0.0s |
+| MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ⏭️ skipped | 0.0s |
+
+## Diagnostics
+
+```
+[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: the federated session authorizes the account portal (SSO-3049)
+
+[2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
+
+Expected substring: [32m"/account/security"[39m
+Received string:    [31m"/login"[39m
+[error path: a wrong TOTP code is rejected at the challenge] Error: the TOTP-enrolled user is challenged for the second factor on sign-in
+
+[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: locator('#mfa-form #code')
+Expected: visible
+```
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/ci-totp-signin |
+| Issuer | examples.auth.stg.thoryn.org/ci-totp-signin |
 | Relying party | http://127.0.0.1:8471 |
-| Identity host | https://identity.stg.thoryn.org |
+| Identity host | https://examples.auth.stg.thoryn.org/id |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35961492129)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36221753477)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

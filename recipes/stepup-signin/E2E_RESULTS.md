@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-24T06:00:07.282Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-09-26T05:59:54.207Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,19 +30,19 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 9.8s |
-| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 7.4s |
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 13.0s |
+| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 7.0s |
 
 ## Environment
 
 | Key | Value |
 |-----|-------|
-| Issuer | examples.hub.stg.thoryn.org/ci-stepup-signin |
+| Issuer | examples.auth.stg.thoryn.org/ci-stepup-signin |
 | Relying party | http://127.0.0.1:8471 |
-| Identity host | https://identity.stg.thoryn.org |
+| Identity host | https://examples.auth.stg.thoryn.org/id |
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/35962321063)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36222343919)
 - [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

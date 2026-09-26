@@ -9,7 +9,7 @@
     "test:simple": "playwright test -c e2e/playwright.config.ts --project=simple-signin",
     "test:sandbox": "playwright test -c e2e/playwright.config.ts --project=sandbox-signin",
     "test:branded": "playwright test -c e2e/playwright.config.ts --project=branded-signin",
-    "test:unit": "node --test e2e/lib/mailbox.parse.test.mjs",
+    "test:unit": "node --test e2e/lib/mailbox.parse.test.mjs e2e/lib/totp.test.mjs e2e/lib/identity-base.test.mjs",
     "typecheck": "tsc -p e2e/tsconfig.json --noEmit",
     "install-browser": "playwright install --with-deps chromium",
     "report": "playwright show-report e2e/playwright-report",

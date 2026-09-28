@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/passkey-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
-**Generated:** 2026-09-27T06:36:43.427Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
+**Generated:** 2026-09-28T06:51:56.793Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -23,7 +23,7 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 | 1 | Password sign-in (no passkey yet) reaches the RP protected page | ✅ passed |
 | 2 | Enrol a WebAuthn passkey via a CDP virtual authenticator (real register ceremony) | ✅ passed |
 | 3 | Activate a `password + REQUIRED passkey` login flow for the sandbox (thoryn login-flow) | ✅ passed |
-| 4 | Fresh sign-in is CHALLENGED for the passkey second factor → assertion → /protected | ❌ failed |
+| 4 | Fresh sign-in is CHALLENGED for the passkey second factor → assertion → /protected | ✅ passed |
 
 **Error path also covered:** An assertion from an empty authenticator is rejected at the passkey challenge
 
@@ -31,19 +31,8 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ❌ failed | 46.6s |
+| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ✅ passed | 14.2s |
 | error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge | ✅ passed | 2.3s |
-
-## Diagnostics
-
-```
-[full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
-
-Locator: locator('#passwordForm')
-Expected: visible
-Received: <element(s) not found>
-Call log:
-```
 
 ## Environment
 
@@ -55,6 +44,6 @@ Call log:
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36300514031)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36388478929)
 - [Playwright HTML report (CI artifact)](the `passkey-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-29T06:59:55.087Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 1 passed · 1 failed · 0 skipped (of 2).
+**Generated:** 2026-09-30T07:02:37.506Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -31,8 +31,15 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 13.8s |
-| error path: a wrong code is rejected at the magic-code challenge | ✅ passed | 3.8s |
+| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 15.4s |
+| error path: a wrong code is rejected at the magic-code challenge | ⏱️ timed out | 180.1s |
+
+## Diagnostics
+
+```
+[error path: a wrong code is rejected at the magic-code challenge] [31mTest timeout of 180000ms exceeded.[39m
+[error path: a wrong code is rejected at the magic-code challenge] Error: browserContext.close: Target page, context or browser has been closed
+```
 
 ## Environment
 
@@ -44,6 +51,6 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36533948641)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36681064819)
 - [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

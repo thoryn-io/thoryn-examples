@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/sandbox-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-09-30T05:24:17.935Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-01T05:24:01.372Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -32,8 +32,8 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer | ✅ passed | 14.2s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.7s |
+| full Path-B journey signs a verified user in to the RP's protected page against the sandbox issuer | ✅ passed | 14.3s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.6s |
 
 ## Environment
 
@@ -45,6 +45,6 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36673140406)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36819468729)
 - [Playwright HTML report (CI artifact)](the `sandbox-e2e-playwright-report` artifact on the CI run)
 

@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ❌ failed
-**Tests:** 1 passed · 1 failed · 2 skipped (of 4).
-**Generated:** 2026-10-01T05:52:20.927Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ✅ passed
+**Tests:** 4 passed · 0 failed · 0 skipped (of 4).
+**Generated:** 2026-10-02T05:51:23.331Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -22,7 +22,11 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 |---|------|--------|
 | 1 | Password sign-in (no second factor yet) reaches the RP protected page | ✅ passed |
 | 2 | Enrol a TOTP authenticator via the self-service MFA API and verify a computed code | ✅ passed |
-| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ❌ failed |
+| 3 | Fresh sign-in is CHALLENGED for the second factor → computed TOTP → /protected | ✅ passed |
+| 4 | Sign in (password + TOTP challenge) to reach the account portal | ✅ passed |
+| 5 | Regenerate recovery codes on /account/security — a fresh set of 5, distinct from the previous set | ✅ passed |
+| 6 | Disable MFA on the hosted /account/security page (re-auth: current password + live TOTP code) | ✅ passed |
+| 7 | A fresh sign-in is now PASSWORD-ONLY — no second-factor challenge | ✅ passed |
 
 **Error path also covered:** A wrong TOTP code is rejected at the second-factor challenge
 
@@ -30,21 +34,10 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 49.9s |
-| error path: a wrong TOTP code is rejected at the challenge | ✅ passed | 6.6s |
-| recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ⏭️ skipped | 0.0s |
-| MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ⏭️ skipped | 0.0s |
-
-## Diagnostics
-
-```
-[full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected] Error: following the resume redirect reaches the RP protected page
-
-[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
-
-Locator: getByText(/you are signed in as/i)
-Expected: visible
-```
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ✅ passed | 18.4s |
+| error path: a wrong TOTP code is rejected at the challenge | ✅ passed | 6.2s |
+| recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ✅ passed | 10.5s |
+| MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ✅ passed | 10.1s |
 
 ## Environment
 
@@ -56,6 +49,6 @@ Expected: visible
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36821697902)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36970673605)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

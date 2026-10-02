@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-01T06:00:58.398Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-02T05:59:49.441Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,8 +30,8 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 9.0s |
-| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 6.8s |
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 9.8s |
+| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 7.7s |
 
 ## Environment
 
@@ -43,6 +43,6 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36822456306)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36971341210)
 - [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

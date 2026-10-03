@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/magic-link-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-02T06:42:27.258Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-03T06:46:38.955Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,8 +30,8 @@ Drives the `magic-link-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: request a magic link → open it on the same device → /protected | ✅ passed | 9.7s |
-| error path: an invalid/expired magic link does not sign the user in | ✅ passed | 5.4s |
+| full journey: request a magic link → open it on the same device → /protected | ✅ passed | 8.3s |
+| error path: an invalid/expired magic link does not sign the user in | ✅ passed | 4.9s |
 
 ## Environment
 
@@ -43,6 +43,6 @@ Drives the `magic-link-signin` recipe's loopback relying party against the stagi
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/36974751103)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/37104080779)
 - [Playwright HTML report (CI artifact)](the `magic-link-signin-e2e-playwright-report` artifact on the CI run)
 

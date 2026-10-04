@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/branded-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-03T05:41:40.290Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-04T07:21:01.418Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -49,6 +49,6 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/37100565981)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/37185446285)
 - [Playwright HTML report (CI artifact)](the `branded-signin-e2e-playwright-report` artifact on the CI run)
 

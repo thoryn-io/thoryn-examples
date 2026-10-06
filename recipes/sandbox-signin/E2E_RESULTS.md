@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/sandbox-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-05T05:35:21.974Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-06T05:24:03.312Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -45,6 +45,6 @@ Drives the `sandbox-signin` recipe's loopback relying party against the staging 
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/37268347628)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/37418229776)
 - [Playwright HTML report (CI artifact)](the `sandbox-e2e-playwright-report` artifact on the CI run)
 

@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/passkey-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-15T06:37:13.024Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-10-16T06:36:54.522Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -20,10 +20,10 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Password sign-in (no passkey yet) reaches the RP protected page | ✅ passed |
-| 2 | Enrol a WebAuthn passkey via a CDP virtual authenticator (real register ceremony) | ✅ passed |
-| 3 | Activate a `password + REQUIRED passkey` login flow for the sandbox (thoryn login-flow) | ✅ passed |
-| 4 | Fresh sign-in is CHALLENGED for the passkey second factor → assertion → /protected | ✅ passed |
+| 1 | Password sign-in (no passkey yet) reaches the RP protected page | ❌ failed |
+| 2 | Enrol a WebAuthn passkey via a CDP virtual authenticator (real register ceremony) | ⏭️ skipped |
+| 3 | Activate a `password + REQUIRED passkey` login flow for the sandbox (thoryn login-flow) | ⏭️ skipped |
+| 4 | Fresh sign-in is CHALLENGED for the passkey second factor → assertion → /protected | ⏭️ skipped |
 
 **Error path also covered:** An assertion from an empty authenticator is rejected at the passkey challenge
 
@@ -31,8 +31,25 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ✅ passed | 17.5s |
-| error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge | ✅ passed | 2.9s |
+| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ❌ failed | 32.8s |
+| error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge | ❌ failed | 32.5s |
+
+## Diagnostics
+
+```
+[full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected] Error: the first (password-only) sign-in reaches the RP protected page
+
+[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByText(/you are signed in as/i)
+Expected: visible
+[error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge] Error: the passkey-enrolled user is challenged for the passkey on sign-in
+
+[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoHaveURL[2m([22m[32mexpected[39m[2m)[22m
+
+Locator: locator(':root')
+Expected pattern: [32m/\/mfa\/passkey\/challenge/[39m
+```
 
 ## Environment
 
@@ -44,6 +61,6 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/38693337558)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/38862005490)
 - [Playwright HTML report (CI artifact)](the `passkey-signin-e2e-playwright-report` artifact on the CI run)
 

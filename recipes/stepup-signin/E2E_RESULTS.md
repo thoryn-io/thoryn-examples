@@ -6,9 +6,9 @@
 
 **E2E coverage:** yes — colocated at [`e2e/`](./e2e/).
 **Runs in CI via:** `.github/workflows/stepup-signin-e2e.yml` (nightly + `workflow_dispatch`).
-**Latest result:** ✅ passed
-**Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-15T06:00:01.114Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Latest result:** ❌ failed
+**Tests:** 0 passed · 2 failed · 0 skipped (of 2).
+**Generated:** 2026-10-16T06:00:40.615Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -20,9 +20,9 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | # | Step | Result |
 |---|------|--------|
-| 1 | Sign in normally — the user now has an active session at the hub | ✅ passed |
-| 2 | Sensitive action (OIDC prompt=login) RE-CHALLENGES the active session at the hosted login form | ✅ passed |
-| 3 | Re-authenticate → the sensitive action completes on the RP protected page (fresh auth_time) | ✅ passed |
+| 1 | Sign in normally — the user now has an active session at the hub | ❌ failed |
+| 2 | Sensitive action (OIDC prompt=login) RE-CHALLENGES the active session at the hosted login form | ⏭️ skipped |
+| 3 | Re-authenticate → the sensitive action completes on the RP protected page (fresh auth_time) | ⏭️ skipped |
 
 **Error path also covered:** A wrong password at the step-up re-authentication is rejected — the sensitive action does not complete
 
@@ -30,8 +30,25 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ✅ passed | 10.9s |
-| error path: a wrong password at the step-up re-authentication is rejected | ✅ passed | 7.1s |
+| full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected | ❌ failed | 32.8s |
+| error path: a wrong password at the step-up re-authentication is rejected | ❌ failed | 32.6s |
+
+## Diagnostics
+
+```
+[full journey: sign in → sensitive action (prompt=login) → RE-CHALLENGED → re-auth → /protected] Error: the initial sign-in reaches the RP protected page
+
+[31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByText(/you are signed in as/i)
+Expected: visible
+[error path: a wrong password at the step-up re-authentication is rejected] Error: [31mTimed out 30000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+Locator: getByText(/you are signed in as/i)
+Expected: visible
+Received: <element(s) not found>
+Call log:
+```
 
 ## Environment
 
@@ -43,6 +60,6 @@ Drives the `stepup-signin` recipe's loopback relying party against the staging S
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/38689708009)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/38858598415)
 - [Playwright HTML report (CI artifact)](the `stepup-signin-e2e-playwright-report` artifact on the CI run)
 

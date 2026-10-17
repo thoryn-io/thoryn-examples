@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/branded-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 2 passed · 0 failed · 0 skipped (of 2).
-**Generated:** 2026-10-16T05:33:26.669Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-17T05:33:01.989Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -36,8 +36,8 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand | ✅ passed | 22.1s |
-| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
+| full Path-B journey signs a verified user in against the sandbox issuer, with the login carrying the recipe's brand | ✅ passed | 30.3s |
+| error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.7s |
 
 ## Environment
 
@@ -49,6 +49,6 @@ Drives the `branded-signin` recipe's loopback relying party against the staging 
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/38856268681)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/39006550960)
 - [Playwright HTML report (CI artifact)](the `branded-signin-e2e-playwright-report` artifact on the CI run)
 

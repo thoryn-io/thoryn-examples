@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/example-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ✅ passed
 **Tests:** 7 passed · 0 failed · 0 skipped (of 7).
-**Generated:** 2026-10-20T04:52:20.866Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-22T04:52:26.366Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -51,12 +51,12 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 33.1s |
-| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 44.6s |
-| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 14.2s |
-| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 13.5s |
-| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 25.7s |
-| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ✅ passed | 19.8s |
+| full Path-B journey signs a verified user in to the RP's protected page | ✅ passed | 39.6s |
+| account unlock: five wrong passwords lock the account, then the emailed unlock link restores sign-in (SSO-1905) | ✅ passed | 44.3s |
+| sign-out: RP-Initiated Logout round-trips a loopback RP back to its post_logout_redirect_uri (OIDC RP-Initiated Logout 1.0 + RFC 8252, SSO-3080) | ✅ passed | 15.7s |
+| negative security: a wrong password and an unknown email show the SAME neutral error (no user enumeration, SSO-1895) | ✅ passed | 12.5s |
+| negative security: a suspended account shows the distinct suspended notice, not the generic error (SSO-3081) | ✅ passed | 20.2s |
+| session management: an app can sign out another device via the CIAM session API (SSO-888/SSO-3083) | ✅ passed | 23.2s |
 | error path: a garbage verify-email token shows the neutral invalid screen | ✅ passed | 0.5s |
 
 ## Environment
@@ -69,6 +69,6 @@ Drives the `simple-signin` recipe's real loopback relying party against the stag
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/39371464629)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/39724437358)
 - [Playwright HTML report (CI artifact)](the `example-e2e-playwright-report` artifact on the CI run)
 

@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/totp-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 2 skipped (of 4).
-**Generated:** 2026-10-24T05:49:52.473Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-25T05:50:23.835Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -30,8 +30,8 @@ Drives the `totp-signin` recipe's loopback relying party against the staging Saa
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 34.0s |
-| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 33.0s |
+| full journey: password sign-in → enrol TOTP → re-sign-in is TOTP-challenged → /protected | ❌ failed | 33.2s |
+| error path: a wrong TOTP code is rejected at the challenge | ❌ failed | 32.7s |
 | recovery codes: a signed-in user regenerates their backup codes on the account page (5 fresh, distinct codes) | ⏭️ skipped | 0.0s |
 | MFA lifecycle: disabling MFA on the account page means the next sign-in is no longer second-factor challenged | ⏭️ skipped | 0.0s |
 
@@ -62,6 +62,6 @@ Expected: visible
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/40067635010)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/40166825610)
 - [Playwright HTML report (CI artifact)](the `totp-signin-e2e-playwright-report` artifact on the CI run)
 

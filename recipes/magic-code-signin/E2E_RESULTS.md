@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/magic-code-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 1 passed · 1 failed · 0 skipped (of 2).
-**Generated:** 2026-10-25T06:57:03.917Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-10-26T07:15:33.196Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -31,7 +31,7 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 24.6s |
+| full journey: enable magic-code → request a code → type it → /protected | ✅ passed | 29.8s |
 | error path: a wrong code is rejected at the magic-code challenge | ⏱️ timed out | 180.1s |
 
 ## Diagnostics
@@ -51,6 +51,6 @@ Drives the `magic-code-signin` recipe's loopback relying party against the stagi
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/40170663682)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/40284203675)
 - [Playwright HTML report (CI artifact)](the `magic-code-signin-e2e-playwright-report` artifact on the CI run)
 

@@ -8,7 +8,7 @@
 **Runs in CI via:** `.github/workflows/passkey-signin-e2e.yml` (nightly + `workflow_dispatch`).
 **Latest result:** ❌ failed
 **Tests:** 0 passed · 2 failed · 0 skipped (of 2).
-**Generated:** 2026-11-18T06:25:15.605Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
+**Generated:** 2026-11-21T06:23:20.412Z — by the Playwright reporter (e2e/lib/e2e-results-reporter.mjs).
 
 ## Scenario
 
@@ -31,8 +31,8 @@ Drives the `passkey-signin` recipe's loopback relying party against the staging 
 
 | Test | Result | Duration |
 |------|--------|----------|
-| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ❌ failed | 33.1s |
-| error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge | ❌ failed | 34.0s |
+| full journey: password sign-in → enrol passkey → enforce → re-sign-in is passkey-challenged → /protected | ❌ failed | 33.9s |
+| error path: an assertion from an EMPTY authenticator is rejected at the passkey challenge | ❌ failed | 32.5s |
 
 ## Diagnostics
 
@@ -61,6 +61,6 @@ Expected pattern: [32m/\/mfa\/passkey\/challenge/[39m
 
 ## Links
 
-- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/44250900362)
+- [CI run](https://github.com/thoryn-io/thoryn-examples/actions/runs/44875117386)
 - [Playwright HTML report (CI artifact)](the `passkey-signin-e2e-playwright-report` artifact on the CI run)
 
